@@ -14,9 +14,10 @@ foreach($version in 1,2){
  $build=Join-Path $OutputDirectory "build-$version"
  foreach($part in 'library','client'){New-Item -ItemType Directory -Path (Join-Path $build $part) | Out-Null}
  "public class Api { public static int Get() { return Helper.Value(); } public virtual int v() { return 0; } } public class Helper { public static int Value() { return $version; } }" | Set-Content (Join-Path $build 'library\Library.cs')
- if($Batch){Add-Content (Join-Path $build 'library\Library.cs') 'public class ReflectionProbe { public static int Read() { return (int)typeof(Helper).Assembly.GetType("Api").GetMethod("Get").Invoke(null, null); } }'}
+ if($Batch){Add-Content (Join-Path $build 'library\Library.cs') "public class VersionApi { public static int Only$version() { return $version; } }"; Add-Content (Join-Path $build 'library\Library.cs') 'public class ReflectionProbe { public static int Read() { return (int)typeof(Helper).Assembly.GetType("Api").GetMethod("Get").Invoke(null, null); } }'}
  "using System; class Derived : Api { public override int v() { return 7; } } class Program { static int Main() { Api instance=new Derived(); if(Api.Get() != $version || instance.v() != 7) throw new Exception(`"Wrong compatibility assembly or virtual binding`" ); Console.WriteLine(`"PASS: binding context $version`" ); return 0; } }" | Set-Content (Join-Path $build 'client\Client.cs')
  if($Batch){$clientFile=Join-Path $build 'client\Client.cs'; (Get-Content $clientFile -Raw).Replace('return 0;', 'if (ReflectionProbe.Read() != Api.Get() || (int)typeof(Api).Assembly.GetType("Api").GetMethod("Get").Invoke(null, null) != Api.Get()) throw new Exception("Reflection binding changed"); return 0;') | Set-Content $clientFile}
+ if($Batch){(Get-Content $clientFile -Raw).Replace('return 0;', "if (VersionApi.Only$version() != $version) throw new Exception(); return 0;") | Set-Content $clientFile}
  '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net48</TargetFramework><AssemblyVersion>1.0.0.0</AssemblyVersion></PropertyGroup></Project>' | Set-Content (Join-Path $build 'library\Library.csproj')
  '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net48</TargetFramework><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><ProjectReference Include="..\library\Library.csproj" /></ItemGroup></Project>' | Set-Content (Join-Path $build 'client\Client.csproj')
  dotnet build (Join-Path $build 'client\Client.csproj') -c Release --nologo -v quiet
@@ -68,6 +69,44 @@ foreach($order in 'forward','reverse'){
 }
 if(Compare-Object $hashes @($inputs | Get-FileHash | ForEach-Object Hash)){throw 'Input assemblies changed.'}
 if($Batch){
+ $flat=Join-Path $OutputDirectory 'flat-input'
+ New-Item -ItemType Directory -Path $flat | Out-Null
+ foreach($version in 1,2){
+  Copy-Item (Join-Path $root "context-$version\Client.exe") (Join-Path $flat "Client$version.exe")
+  $name=if($version -eq 1){'Library.dll'}else{'LegacyLibrary.dll'}
+  Copy-Item (Join-Path $root "context-$version\Library.dll") (Join-Path $flat $name)
+ }
+ $flatHashes=@(Get-ChildItem $flat -File | Get-FileHash | ForEach-Object Hash)
+ $without=Join-Path $OutputDirectory 'flat-without-bindings'
+ & $De4dot --no-cflow-deob --default-strtyp none --batch $flat --batch-output $without
+ if($LASTEXITCODE -eq 0 -or (Test-Path $without)){throw 'Mixed APIs without the required binding were silently accepted.'}
+ foreach($order in 'forward','reverse'){
+  $bindingArgs=@('--batch-binding','Client1.exe=Library.dll','--batch-binding','Client2.exe=LegacyLibrary.dll')
+  if($order -eq 'reverse'){$bindingArgs=@('--batch-binding','Client2.exe=LegacyLibrary.dll','--batch-binding','Client1.exe=Library.dll')}
+  $flatOutput=Join-Path $OutputDirectory "flat-$order"
+  & $De4dot --no-cflow-deob --default-strtyp none --df-name '^(?!v$)[A-Za-z_][A-Za-z_0-9]*$' --batch $flat --batch-output $flatOutput @bindingArgs
+  if($LASTEXITCODE -ne 0){throw 'Explicit same-directory binding failed.'}
+  foreach($version in 1,2){
+   # Reproduce each custom loader's dependency choice in an isolated process.
+   $runtime=Join-Path $OutputDirectory "flat-runtime-$order-$version"
+   New-Item -ItemType Directory -Path $runtime | Out-Null
+   Copy-Item (Join-Path $flatOutput "Client$version.exe") (Join-Path $runtime 'Client.exe')
+   $name=if($version -eq 1){'Library.dll'}else{'LegacyLibrary.dll'}
+   Copy-Item (Join-Path $flatOutput $name) (Join-Path $runtime 'Library.dll')
+   & (Join-Path $runtime 'Client.exe')
+   if($LASTEXITCODE -ne 0){throw 'Explicit binding changed API, reflection or virtual dispatch.'}
+  }
+ }
+ if(Compare-Object $flatHashes @(Get-ChildItem $flat -File | Get-FileHash | ForEach-Object Hash)){throw 'Explicit binding changed inputs.'}
+ $guardIndex=0
+ foreach($bad in @(@('Client2.exe=missing.dll'),@('../input/context-2/Client.exe=Library.dll'),@('Client2.exe=LegacyLibrary.dll','Client2.exe=Library.dll'),@('Client1.exe=Client2.exe'),@('malformed'))){
+  $guardOutput=Join-Path $OutputDirectory "binding-invalid-$guardIndex"
+  $guardArgs=@(); foreach($value in $bad){$guardArgs+=@('--batch-binding',$value)}
+  & $De4dot --batch $flat --batch-output $guardOutput @guardArgs
+  if($LASTEXITCODE -eq 0 -or (Test-Path $guardOutput)){throw 'Invalid binding was accepted.'}
+  $guardIndex++
+ }
+ Write-Output 'PASS: explicit same-directory dependency bindings and validation guards'
  & $De4dot --batch $root --batch-output (Join-Path $root 'nested-output')
  if($LASTEXITCODE -eq 0 -or (Test-Path (Join-Path $root 'nested-output'))){throw 'Overlap guard failed.'}
  & $De4dot --batch $root --batch-output (Join-Path $OutputDirectory 'forward')

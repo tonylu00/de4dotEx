@@ -23,6 +23,14 @@ Supported protectors are detected automatically. Unknown components skip deobfus
 
 Batch renaming also repairs constant `typeof(T).Assembly.GetType("Name")` lookups, binding the string to that assembly's type before names change. This includes unprotected callers. Computed strings, other reflection patterns and custom loader policies are not covered.
 
+For custom loaders that select different same-identity dependencies in one directory, specify each physical binding explicitly (repeat the option as needed):
+
+```powershell
+de4dot-x64.exe --batch "D:\Apps\Original" --batch-output "D:\Apps\Restored" --batch-binding "LegacyClient.exe=compat\LegacyLibrary.dll"
+```
+
+Both paths are relative to the input folder and must name managed batch inputs. The dependency must exactly match an assembly reference in the client. The choice applies to transformation resolution and the shared rename/reference graph; duplicate conflicting choices and self-reference replacements are rejected. Bindings do not change the application's runtime loader or move dependencies. Specify transitive consumers separately when they also require an override. The default nearest-directory resolver remains in use for unspecified references.
+
 Existing transformation switches apply, including `--dont-rename` and `--default-strtyp none`. `--batch` cannot be mixed with individual input files, recursive scan options, detection-only mode or one-file-at-a-time mode. XAML/BAML rewriting remains a limitation; successful batch output alone is not proof of application equivalence.
 
 ***WARNING***: `de4dot` uses `BinaryFormatter` in some backends (`BabelNET` and `CodeVeil`).

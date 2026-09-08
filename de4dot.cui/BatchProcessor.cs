@@ -75,6 +75,7 @@ namespace de4dot.cui {
 					catch (BadImageFormatException) { file.Dispose(); Logger.n("Copying native or invalid PE: {0}", relative); }
 					catch { file.Dispose(); throw; }
 				}
+				ConfigureBindings(files, snapshot);
 				var protectedFiles = files.Where(f => f.Deobfuscator.Type != "un").ToList();
 				deobfuscate(protectedFiles);
 				var graph = new Modules(context);
@@ -113,6 +114,7 @@ namespace de4dot.cui {
 					protectedFiles.Count, referenceOnly, graph.TheModules.Count - protectedFiles.Count - referenceOnly, output);
 			}
 			finally {
+				context.ClearData(BatchAssemblyBindings.ContextKey);
 				foreach (var file in files) file.Dispose();
 				if (published) {
 					// Only our new, validated staging tree can be removed.
@@ -123,6 +125,33 @@ namespace de4dot.cui {
 				}
 				else Logger.w("Batch failed; unpublished staging files retained at {0}", work);
 			}
+		}
+
+		void ConfigureBindings(List<IObfuscatedFile> files, string snapshot) {
+			if (options.BatchBindings.Count == 0) return;
+			var comparer = Path.DirectorySeparatorChar == '\\' ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+			var modules = files.ToDictionary(f => Path.GetFullPath(f.ModuleDefMD.Location), f => f.ModuleDefMD, comparer);
+			var bindings = new BatchAssemblyBindings(options.ModuleContext.AssemblyResolver);
+			foreach (var binding in options.BatchBindings) {
+				int separator = binding.IndexOf('=');
+				if (separator <= 0 || separator == binding.Length - 1)
+					throw new UserException("Expected --batch-binding source=dependency: " + binding);
+				var source = BindingModule(binding.Substring(0, separator), snapshot, modules);
+				var dependency = BindingModule(binding.Substring(separator + 1), snapshot, modules);
+				if (dependency.Assembly == null || !source.GetAssemblyRefs().Any(a => a.FullName == dependency.Assembly.FullName))
+					throw new UserException("Batch binding dependency must exactly match an assembly reference: " + binding);
+				bindings.Add(source, dependency);
+			}
+			context.SetData(BatchAssemblyBindings.ContextKey, bindings);
+			foreach (var file in files)
+				file.ModuleDefMD.Context = new ModuleContext(bindings);
+		}
+
+		static ModuleDefMD BindingModule(string relative, string snapshot, Dictionary<string, ModuleDefMD> modules) {
+			var path = Path.GetFullPath(Path.Combine(snapshot, relative));
+			if (Path.IsPathRooted(relative) || !Inside(path, snapshot) || !modules.TryGetValue(path, out var module))
+				throw new UserException("Batch binding must name a managed input file inside the batch folder: " + relative);
+			return module;
 		}
 
 		static bool ApplyReferences(de4dot.code.renamer.asmmodules.Module module) {

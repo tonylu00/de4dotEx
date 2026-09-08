@@ -400,6 +400,10 @@ namespace de4dot.code.renamer.asmmodules {
 		}
 
 		IEnumerable<Module> FindModules(AssemblyRef assemblyRef, ModuleDef source) {
+			var bindings = deobfuscatorContext.GetData(BatchAssemblyBindings.ContextKey) as BatchAssemblyBindings;
+			var selected = bindings?.Find(assemblyRef, source);
+			if (selected != null)
+				return FindModules(selected);
 			var moduleHash = assemblyHash.Lookup(assemblyRef);
 			if (moduleHash != null)
 				return moduleHash.Lookup(assemblyRef, source);
