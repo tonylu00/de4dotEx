@@ -77,6 +77,13 @@ namespace de4dot.cui {
 					catch { file.Dispose(); throw; }
 				}
 				ConfigureBindings(files, snapshot);
+				var metadataRepaired = new HashSet<ModuleDef>();
+				foreach (var file in files) {
+					int repaired = CoreLibraryAttributeReferences.Repair(file.ModuleDefMD);
+					if (repaired == 0) continue;
+					metadataRepaired.Add(file.ModuleDefMD);
+					Logger.w("Repaired {0} missing self-scoped core-library attribute types in {1}", repaired, file.Filename);
+				}
 				var protectedFiles = files.Where(f => f.Deobfuscator.Type != "un").ToList();
 				deobfuscate(protectedFiles);
 				var graph = new Modules(context);
@@ -98,7 +105,7 @@ namespace de4dot.cui {
 				foreach (var pair in boundaryNames) pair.Key.Name = pair.Value;
 				int referenceOnly = 0;
 				foreach (var module in graph.TheModules) {
-					bool changed = ApplyReferences(module) | reflectionReferences.Apply(module.ModuleDefMD);
+					bool changed = ApplyReferences(module) | reflectionReferences.Apply(module.ModuleDefMD) | metadataRepaired.Contains(module.ModuleDefMD);
 					bool cleaned = protectedFiles.Contains(module.ObfuscatedFile);
 					if (!cleaned && !changed) continue;
 					if (!cleaned) { referenceOnly++; Logger.n("Updating dependency references only: {0}", module.Filename); }

@@ -21,6 +21,8 @@ The output folder must be new and outside the input tree. Batch mode stages the 
 
 Supported protectors are detected automatically. Unknown components skip deobfuscation and declaration renaming. Their dependency references are updated if protected symbols change; otherwise their bytes are copied unchanged. Protected/unprotected virtual contracts retain their method names. Compatibility copies remain separate and references are selected by their referring assembly's context, not by simple filename alone. File copying uses up to four workers; deobfuscation and graph-wide renaming remain sequential because the existing backends share mutable state.
 
+Batch mode also repairs malformed attribute type values that name a missing local CLR primitive (for example, `System.String, MyAssembly`) by restoring the core-library scope. Actual local definitions and exported types are preserved; this is not a general fallback for unresolved types. Components with this repair are saved and reported as reference-only changes.
+
 Batch renaming also repairs constant `typeof(T).Assembly.GetType("Name")` lookups, binding the string to that assembly's type before names change. This includes unprotected callers. Computed strings, other reflection patterns and custom loader policies are not covered.
 
 For custom loaders that select different same-identity dependencies in one directory, specify each physical binding explicitly (repeat the option as needed):
