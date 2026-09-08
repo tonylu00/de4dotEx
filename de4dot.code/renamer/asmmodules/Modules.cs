@@ -436,7 +436,7 @@ namespace de4dot.code.renamer.asmmodules {
 			Logger.e("Could not resolve TypeRef {0} ({1:X8}) (from {2} -> {3})",
 						Utils.RemoveNewlines(typeRef),
 						typeRef.MDToken.ToInt32(),
-						typeRef.Module,
+						ModuleLocation(typeRef.Module),
 						typeRef.Scope);
 			return null;
 		}
@@ -457,7 +457,7 @@ namespace de4dot.code.renamer.asmmodules {
 			Logger.e("Could not resolve MethodRef {0} ({1:X8}) (from {2} -> {3})",
 						Utils.RemoveNewlines(methodRef),
 						methodRef.MDToken.ToInt32(),
-						methodRef.DeclaringType.Module,
+						ModuleLocation(methodRef.DeclaringType.Module),
 						methodRef.DeclaringType.Scope);
 			return null;
 		}
@@ -478,10 +478,12 @@ namespace de4dot.code.renamer.asmmodules {
 			Logger.e("Could not resolve FieldRef {0} ({1:X8}) (from {2} -> {3})",
 						Utils.RemoveNewlines(fieldRef),
 						fieldRef.MDToken.ToInt32(),
-						fieldRef.DeclaringType.Module,
+						ModuleLocation(fieldRef.DeclaringType.Module),
 						fieldRef.DeclaringType.Scope);
 			return null;
 		}
+
+		static string ModuleLocation(ModuleDef module) => string.IsNullOrEmpty(module?.Location) ? module?.Name?.ToString() : module.Location;
 
 		bool ResolvesOutsideBatch(ITypeDefOrRef type) {
 			// A loaded facade can forward to a framework assembly outside this rename set.
@@ -491,3 +493,4 @@ namespace de4dot.code.renamer.asmmodules {
 		}
 	}
 }
+
