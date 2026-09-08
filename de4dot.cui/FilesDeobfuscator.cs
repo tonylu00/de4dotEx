@@ -35,6 +35,7 @@ namespace de4dot.cui {
 		public class Options {
 			public string BatchRoot { get; set; }
 			public string BatchOutput { get; set; }
+			public string AssemblyContexts { get; set; }
 			public List<string> BatchBindings { get; } = new List<string>();
 			public ModuleContext ModuleContext { get; set; }
 			public IList<IDeobfuscatorInfo> DeobfuscatorInfos { get; set; }
@@ -84,6 +85,8 @@ namespace de4dot.cui {
 		public FilesDeobfuscator(Options options) => this.options = options;
 
 		public void DoIt() {
+			if (options.AssemblyContexts != null && options.BatchRoot == null)
+				throw new UserException("--assembly-contexts requires --batch.");
 			if (options.BatchBindings.Count != 0 && options.BatchRoot == null)
 				throw new UserException("--batch-binding requires --batch.");
 			if (options.BatchOutput != null && options.BatchRoot == null)

@@ -404,6 +404,12 @@ namespace de4dot.code.renamer.asmmodules {
 			var selected = bindings?.Find(assemblyRef, source);
 			if (selected != null)
 				return FindModules(selected);
+			var contexts = deobfuscatorContext.GetData(BatchAssemblyContexts.ContextKey) as BatchAssemblyContexts;
+			if (contexts?.Contains(source) == true) {
+				var resolved = contexts.Resolve(assemblyRef, source);
+				if (resolved == null) throw new UserException("Could not resolve assembly in explicit context: " + source.Location + " -> " + assemblyRef.FullName);
+				return FindModules(resolved.ManifestModule);
+			}
 			var moduleHash = assemblyHash.Lookup(assemblyRef);
 			if (moduleHash != null)
 				return moduleHash.Lookup(assemblyRef, source);
@@ -428,8 +434,11 @@ namespace de4dot.code.renamer.asmmodules {
 
 		public MTypeDef ResolveType(ITypeDefOrRef typeRef) {
 			var modules = FindModules(typeRef);
-			if (modules == null)
+			if (modules == null) {
+				if (HasExplicitContext(typeRef.Module) && !IsAutoCreatedType(typeRef) && deobfuscatorContext.ResolveType(typeRef) == null)
+					Logger.e("Could not resolve external TypeRef {0} from explicit context {1}", typeRef, ModuleLocation(typeRef.Module));
 				return null;
+			}
 			foreach (var module in modules) {
 				var rv = module.ResolveType(typeRef);
 				if (rv != null)
@@ -449,8 +458,11 @@ namespace de4dot.code.renamer.asmmodules {
 			if (methodRef.DeclaringType == null)
 				return null;
 			var modules = FindModules(methodRef.DeclaringType);
-			if (modules == null)
+			if (modules == null) {
+				if (HasExplicitContext(methodRef.DeclaringType.Module) && !IsAutoCreatedType(methodRef.DeclaringType) && deobfuscatorContext.ResolveMethod(methodRef) == null)
+					Logger.e("Could not resolve external MethodRef {0} from explicit context {1}", methodRef, ModuleLocation(methodRef.DeclaringType.Module));
 				return null;
+			}
 			foreach (var module in modules) {
 				var rv = module.ResolveMethod(methodRef);
 				if (rv != null)
@@ -470,8 +482,11 @@ namespace de4dot.code.renamer.asmmodules {
 			if (fieldRef.DeclaringType == null)
 				return null;
 			var modules = FindModules(fieldRef.DeclaringType);
-			if (modules == null)
+			if (modules == null) {
+				if (HasExplicitContext(fieldRef.DeclaringType.Module) && !IsAutoCreatedType(fieldRef.DeclaringType) && deobfuscatorContext.ResolveField(fieldRef) == null)
+					Logger.e("Could not resolve external FieldRef {0} from explicit context {1}", fieldRef, ModuleLocation(fieldRef.DeclaringType.Module));
 				return null;
+			}
 			foreach (var module in modules) {
 				var rv = module.ResolveField(fieldRef);
 				if (rv != null)
@@ -488,6 +503,7 @@ namespace de4dot.code.renamer.asmmodules {
 		}
 
 		static string ModuleLocation(ModuleDef module) => string.IsNullOrEmpty(module?.Location) ? module?.Name?.ToString() : module.Location;
+		bool HasExplicitContext(ModuleDef source) => (deobfuscatorContext.GetData(BatchAssemblyContexts.ContextKey) as BatchAssemblyContexts)?.Contains(source) == true;
 
 		bool ResolvesOutsideBatch(ITypeDefOrRef type) {
 			// A loaded facade can forward to a framework assembly outside this rename set.

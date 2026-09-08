@@ -31,6 +31,17 @@ de4dot-x64.exe --batch "D:\Apps\Original" --batch-output "D:\Apps\Restored" --ba
 
 Both paths are relative to the input folder and must name managed batch inputs. The dependency must exactly match an assembly reference in the client. The choice applies to transformation resolution and the shared rename/reference graph; duplicate conflicting choices and self-reference replacements are rejected. Bindings do not change the application's runtime loader or move dependencies. Specify transitive consumers separately when they also require an override. The default nearest-directory resolver remains in use for unspecified references.
 
+For a separate dependency installation, use `--assembly-contexts contexts.xml`:
+
+```xml
+<AssemblyContexts>
+  <Context Source="original/LegacyClient.dll" Directory="legacy-dependencies"
+           Config="legacy-dependencies/App.exe.config" />
+</AssemblyContexts>
+```
+
+Paths are relative to the manifest. Sources must be managed batch inputs; `Config` is optional. Each selected input has an isolated dependency cache, exact assembly matching, and its own redirects/private probing paths. External dependencies are read-only and are not copied into the output. In-tree paths follow the staging copy. Explicit `--batch-binding` choices take precedence. External missing-member errors still prevent publication. Runtime loading and XAML/BAML rewriting are not implemented by this option.
+
 Existing transformation switches apply, including `--dont-rename` and `--default-strtyp none`. `--batch` cannot be mixed with individual input files, recursive scan options, detection-only mode or one-file-at-a-time mode. XAML/BAML rewriting remains a limitation; successful batch output alone is not proof of application equivalence.
 
 For readable source exports, use `--default-strtyp static` with a supported static string decoder. `--default-strtyp none` deliberately leaves encrypted literals and their runtime decoder calls in place; it does not extract readable strings. Verify decoded values and rebuilt behavior before adopting a new processed tree.

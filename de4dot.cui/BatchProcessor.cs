@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Xml;
 using de4dot.code;
 using de4dot.code.deobfuscators;
 using de4dot.code.renamer.asmmodules;
@@ -114,6 +115,8 @@ namespace de4dot.cui {
 					protectedFiles.Count, referenceOnly, graph.TheModules.Count - protectedFiles.Count - referenceOnly, output);
 			}
 			finally {
+				(context.GetData(BatchAssemblyContexts.ContextKey) as BatchAssemblyContexts)?.Dispose();
+				context.ClearData(BatchAssemblyContexts.ContextKey);
 				context.ClearData(BatchAssemblyBindings.ContextKey);
 				foreach (var file in files) file.Dispose();
 				if (published) {
@@ -128,10 +131,13 @@ namespace de4dot.cui {
 		}
 
 		void ConfigureBindings(List<IObfuscatedFile> files, string snapshot) {
-			if (options.BatchBindings.Count == 0) return;
+			if (options.BatchBindings.Count == 0 && options.AssemblyContexts == null) return;
 			var comparer = Path.DirectorySeparatorChar == '\\' ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 			var modules = files.ToDictionary(f => Path.GetFullPath(f.ModuleDefMD.Location), f => f.ModuleDefMD, comparer);
-			var bindings = new BatchAssemblyBindings(options.ModuleContext.AssemblyResolver);
+			var contexts = new BatchAssemblyContexts(modules.Values, options.ModuleContext.AssemblyResolver);
+			context.SetData(BatchAssemblyContexts.ContextKey, contexts);
+			if (options.AssemblyContexts != null) ConfigureContexts(contexts, snapshot, modules);
+			var bindings = new BatchAssemblyBindings(contexts);
 			foreach (var binding in options.BatchBindings) {
 				int separator = binding.IndexOf('=');
 				if (separator <= 0 || separator == binding.Length - 1)
@@ -145,6 +151,33 @@ namespace de4dot.cui {
 			context.SetData(BatchAssemblyBindings.ContextKey, bindings);
 			foreach (var file in files)
 				file.ModuleDefMD.Context = new ModuleContext(bindings);
+		}
+
+		void ConfigureContexts(BatchAssemblyContexts contexts, string snapshot, Dictionary<string, ModuleDefMD> modules) {
+			var manifest = Path.GetFullPath(options.AssemblyContexts);
+			var root = FullDirectory(options.BatchRoot);
+			var document = new XmlDocument { XmlResolver = null };
+			using (var reader = XmlReader.Create(manifest, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null })) document.Load(reader);
+			if (document.DocumentElement?.Name != "AssemblyContexts") throw new UserException("Expected an AssemblyContexts manifest.");
+			foreach (XmlNode node in document.DocumentElement.ChildNodes) {
+				if (!(node is XmlElement entry)) continue;
+				if (entry.Name != "Context") throw new UserException("Unknown assembly context element: " + entry.Name);
+				string ReadPath(string name, bool optional = false) {
+					var value = entry.GetAttribute(name);
+					if (string.IsNullOrWhiteSpace(value)) {
+						if (optional) return null;
+						throw new UserException("Assembly context requires " + name);
+					}
+					return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(manifest), value));
+				}
+				string Remap(string path) => path != null && Inside(path, root) ? Path.Combine(snapshot, path.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar)) : path;
+				var source = ReadPath("Source");
+				var directory = Remap(ReadPath("Directory"));
+				var config = Remap(ReadPath("Config", true));
+				if (!Inside(source, root) || !modules.TryGetValue(Remap(source), out var module)) throw new UserException("Assembly context Source must name a managed batch input: " + source);
+				if (!Directory.Exists(directory) || config != null && !File.Exists(config)) throw new UserException("Assembly context directory/config does not exist: " + directory);
+				contexts.Add(module, directory, config);
+			}
 		}
 
 		static ModuleDefMD BindingModule(string relative, string snapshot, Dictionary<string, ModuleDefMD> modules) {

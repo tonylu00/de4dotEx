@@ -92,6 +92,7 @@ namespace de4dot.cui {
 		void AddAllOptions() {
 			miscOptions.Add(new OneArgOption(null, "batch", "Process an application folder as one dependency graph", "dir", val => filesOptions.BatchRoot = val));
 			miscOptions.Add(new OneArgOption(null, "batch-output", "New output folder for --batch", "dir", val => filesOptions.BatchOutput = val));
+			miscOptions.Add(new OneArgOption(null, "assembly-contexts", "Per-input dependency context XML for --batch", "file", val => filesOptions.AssemblyContexts = val));
 			miscOptions.Add(new OneArgOption(null, "batch-binding", "Select a dependency copy for a batch input (repeatable, paths relative to input)", "source=dependency", val => filesOptions.BatchBindings.Add(val)));
 			miscOptions.Add(new OneArgOption("r", null, "Scan for .NET files in all subdirs", "dir", (val) => {
 				AddSearchDir();
