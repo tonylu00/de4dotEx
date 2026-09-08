@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using dnlib.DotNet;
 
 namespace de4dot.code {
-	/// <summary>Repairs missing self-scoped CLR primitive types in serialized attribute values.</summary>
+	/// <summary>Repairs missing self-scoped core-library types in serialized attribute values.</summary>
 	public static class CoreLibraryAttributeReferences {
 		public static int Repair(ModuleDef module) {
 			if (module.Assembly == null) return 0;
@@ -15,7 +15,8 @@ namespace de4dot.code {
 					reference.DefinitionAssembly?.FullName == module.Assembly?.FullName && reference.Namespace == "System" &&
 					module.Find(reference.FullName, false) == null && !module.ExportedTypes.Any(t => t.FullName == reference.FullName)) {
 					var canonical = module.CorLibTypes.GetCorLibTypeSig(reference.Namespace, reference.Name, module.CorLibTypes.AssemblyRef);
-					if (canonical != null && reference.DefinitionAssembly.FullName != module.CorLibTypes.AssemblyRef.FullName) {
+					bool existsInCoreLibrary = canonical != null || new TypeRefUser(module, reference.Namespace, reference.Name, module.CorLibTypes.AssemblyRef).ResolveTypeDef() != null;
+					if (existsInCoreLibrary && reference.DefinitionAssembly.FullName != module.CorLibTypes.AssemblyRef.FullName) {
 						reference.ResolutionScope = module.CorLibTypes.AssemblyRef;
 						repaired++;
 					}

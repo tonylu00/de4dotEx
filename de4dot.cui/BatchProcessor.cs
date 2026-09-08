@@ -77,6 +77,8 @@ namespace de4dot.cui {
 					catch { file.Dispose(); throw; }
 				}
 				ConfigureBindings(files, snapshot);
+				var protectedFiles = files.Where(f => f.Deobfuscator.Type != "un").ToList();
+				deobfuscate(protectedFiles);
 				var metadataRepaired = new HashSet<ModuleDef>();
 				foreach (var file in files) {
 					int repaired = CoreLibraryAttributeReferences.Repair(file.ModuleDefMD);
@@ -84,8 +86,6 @@ namespace de4dot.cui {
 					metadataRepaired.Add(file.ModuleDefMD);
 					Logger.w("Repaired {0} missing self-scoped core-library attribute types in {1}", repaired, file.Filename);
 				}
-				var protectedFiles = files.Where(f => f.Deobfuscator.Type != "un").ToList();
-				deobfuscate(protectedFiles);
 				var graph = new Modules(context);
 				foreach (var file in files) graph.Add(new de4dot.code.renamer.asmmodules.Module(file));
 				graph.Initialize();

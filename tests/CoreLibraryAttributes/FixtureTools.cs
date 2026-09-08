@@ -6,17 +6,17 @@ using dnlib.DotNet.Emit;
 class FixtureTools {
  static void Main(string[] args) {
   if(args[0]=="verify") {
-   foreach(var name in new[]{"Primitive","Shadow"}) {
+   foreach(var name in new[]{"Primitive","DateTime","Shadow"}) {
     using var module=ModuleDefMD.Load(Path.Combine(args[1],name+".dll"));
     var value=(TypeSig)module.Types.Single(t=>t.Name=="Target").CustomAttributes.Single().ConstructorArguments[0].Value;
-    var expected=name=="Primitive"?module.CorLibTypes.AssemblyRef.FullName:module.Assembly.FullName;
-    if(value.FullName!="System.String" || value.DefinitionAssembly.FullName!=expected) throw new Exception("Attribute scope changed incorrectly: "+name);
+    var expected=name!="Shadow"?module.CorLibTypes.AssemblyRef.FullName:module.Assembly.FullName;
+    if(value.FullName!=(name=="DateTime"?"System.DateTime":"System.String") || value.DefinitionAssembly.FullName!=expected) throw new Exception("Attribute scope changed incorrectly: "+name);
    }
    Console.WriteLine("PASS: repaired primitive scope survives serialization; real same-named local type retained");
    return;
   }
   Directory.CreateDirectory(args[1]);
-  foreach(var name in args[0]=="bad"?new[]{"Missing"}:new[]{"Primitive","Shadow"}) {
+  foreach(var name in args[0]=="bad"?new[]{"Missing"}:new[]{"Primitive","DateTime","Shadow"}) {
    using var module=new ModuleDefUser(name+".dll"){Kind=ModuleKind.Dll};
    new AssemblyDefUser(name,new Version(1,0,0,0)).Modules.Add(module);
    if(name=="Shadow") module.Types.Add(new TypeDefUser("System","String",module.CorLibTypes.Object.TypeDefOrRef){Attributes=TypeAttributes.Public});
@@ -31,7 +31,7 @@ class FixtureTools {
    var target=new TypeDefUser("Target",module.CorLibTypes.Object.TypeDefOrRef){Attributes=TypeAttributes.Public};
    module.Types.Add(target);
    var custom=new CustomAttribute(ctor);
-   custom.ConstructorArguments.Add(new CAArgument(typeSig,new ClassSig(new TypeRefUser(module,"System",name=="Missing"?"NotACoreType":"String",new AssemblyRefUser(module.Assembly)))));
+   custom.ConstructorArguments.Add(new CAArgument(typeSig,new ClassSig(new TypeRefUser(module,"System",name=="Missing"?"NotACoreType":name=="DateTime"?"DateTime":"String",new AssemblyRefUser(module.Assembly)))));
    target.CustomAttributes.Add(custom);
    module.Write(Path.Combine(args[1],name+".dll"));
   }

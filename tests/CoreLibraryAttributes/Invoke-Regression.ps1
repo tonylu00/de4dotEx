@@ -26,3 +26,4 @@ $badOutput=Join-Path $OutputDirectory 'bad-output'
 & $De4dot --batch $bad --batch-output $badOutput --default-strtyp none
 if($LASTEXITCODE -eq 0 -or (Test-Path $badOutput)){throw 'Unknown System namespace type was guessed or ignored'}
 Write-Output 'PASS: missing non-core types still fail publication; original files unchanged'
+exit 0
