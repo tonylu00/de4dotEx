@@ -33,6 +33,8 @@ Both paths are relative to the input folder and must name managed batch inputs. 
 
 Existing transformation switches apply, including `--dont-rename` and `--default-strtyp none`. `--batch` cannot be mixed with individual input files, recursive scan options, detection-only mode or one-file-at-a-time mode. XAML/BAML rewriting remains a limitation; successful batch output alone is not proof of application equivalence.
 
+For readable source exports, use `--default-strtyp static` with a supported static string decoder. `--default-strtyp none` deliberately leaves encrypted literals and their runtime decoder calls in place; it does not extract readable strings. Verify decoded values and rebuilt behavior before adopting a new processed tree.
+
 ***WARNING***: `de4dot` uses `BinaryFormatter` in some backends (`BabelNET` and `CodeVeil`).
 Code obfuscated with these obfuscators (or the one, that tricks `de4dot` to detect so) will cause execution of arbitrary code during deobfuscation. For example it may be possible to write code tracking attempts of applying `de4dot`.
 A more proper solution is needed for deobfuscating such binaries, such as a completely own parser doing the deserialization safely.
