@@ -878,6 +878,11 @@ namespace de4dot.code.renamer {
 		}
 
 		MPropertyDef CreateProperty(MTypeDef ownerType, string name, TypeSig propType, MethodDef getter, MethodDef setter) {
+			// Imported coclasses can implement COM property accessors as runtime
+			// methods without property rows. That is an interop representation,
+			// not missing managed metadata; preserve the original declaration shape.
+			if (ownerType.TypeDef.IsImport && !ownerType.TypeDef.IsInterface)
+				return null;
 			if (string.IsNullOrEmpty(name) || propType.ElementType == ElementType.Void)
 				return null;
 			var newSig = CreatePropertySig(getter, propType, true) ?? CreatePropertySig(setter, propType, false);
