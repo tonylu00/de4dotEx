@@ -8,6 +8,21 @@ Most of the obfuscation can be completely restored (e.g., string encryption), bu
 
 It uses [dnlib](https://github.com/0xd4d/dnlib/) to read and write assemblies.
 
+Application folder batches
+--------------------------
+
+Use the 64-bit executable for large application trees:
+
+```powershell
+de4dot-x64.exe --batch "D:\Apps\Original" --batch-output "D:\Apps\Restored"
+```
+
+The output folder must be new and outside the input tree. Batch mode stages the entire tree, including native libraries, configuration, resources and empty directories, then publishes the output after processing succeeds. Links and junctions are rejected. On failure the unpublished staging directory is retained for diagnosis.
+
+Supported protectors are detected automatically. Unknown components skip deobfuscation and declaration renaming. Their dependency references are updated if protected symbols change; otherwise their bytes are copied unchanged. Protected/unprotected virtual contracts retain their method names. Compatibility copies remain separate and references are selected by their referring assembly's context, not by simple filename alone. File copying uses up to four workers; deobfuscation and graph-wide renaming remain sequential because the existing backends share mutable state.
+
+Existing transformation switches apply, including `--dont-rename` and `--default-strtyp none`. `--batch` cannot be mixed with individual input files, recursive scan options, detection-only mode or one-file-at-a-time mode. XAML/BAML rewriting and application-specific reflection or custom loader policies remain limitations; successful batch output alone is not proof of application equivalence.
+
 ***WARNING***: `de4dot` uses `BinaryFormatter` in some backends (`BabelNET` and `CodeVeil`).
 Code obfuscated with these obfuscators (or the one, that tricks `de4dot` to detect so) will cause execution of arbitrary code during deobfuscation. For example it may be possible to write code tracking attempts of applying `de4dot`.
 A more proper solution is needed for deobfuscating such binaries, such as a completely own parser doing the deserialization safely.

@@ -431,7 +431,7 @@ namespace de4dot.code.renamer.asmmodules {
 				if (rv != null)
 					return rv;
 			}
-			if (IsAutoCreatedType(typeRef))
+			if (IsAutoCreatedType(typeRef) || ResolvesOutsideBatch(typeRef))
 				return null;
 			Logger.e("Could not resolve TypeRef {0} ({1:X8}) (from {2} -> {3})",
 						Utils.RemoveNewlines(typeRef),
@@ -452,7 +452,7 @@ namespace de4dot.code.renamer.asmmodules {
 				if (rv != null)
 					return rv;
 			}
-			if (IsAutoCreatedType(methodRef.DeclaringType))
+			if (IsAutoCreatedType(methodRef.DeclaringType) || ResolvesOutsideBatch(methodRef.DeclaringType))
 				return null;
 			Logger.e("Could not resolve MethodRef {0} ({1:X8}) (from {2} -> {3})",
 						Utils.RemoveNewlines(methodRef),
@@ -473,7 +473,7 @@ namespace de4dot.code.renamer.asmmodules {
 				if (rv != null)
 					return rv;
 			}
-			if (IsAutoCreatedType(fieldRef.DeclaringType))
+			if (IsAutoCreatedType(fieldRef.DeclaringType) || ResolvesOutsideBatch(fieldRef.DeclaringType))
 				return null;
 			Logger.e("Could not resolve FieldRef {0} ({1:X8}) (from {2} -> {3})",
 						Utils.RemoveNewlines(fieldRef),
@@ -481,6 +481,13 @@ namespace de4dot.code.renamer.asmmodules {
 						fieldRef.DeclaringType.Module,
 						fieldRef.DeclaringType.Scope);
 			return null;
+		}
+
+		bool ResolvesOutsideBatch(ITypeDefOrRef type) {
+			// A loaded facade can forward to a framework assembly outside this rename set.
+			// Such references belong to the external resolver, not to the facade's type table.
+			var target = deobfuscatorContext.ResolveType(type);
+			return target != null && assemblyHash.Lookup(target.DefinitionAssembly) == null;
 		}
 	}
 }

@@ -33,6 +33,8 @@ namespace de4dot.cui {
 		IDeobfuscatorContext deobfuscatorContext = new DeobfuscatorContext();
 
 		public class Options {
+			public string BatchRoot { get; set; }
+			public string BatchOutput { get; set; }
 			public ModuleContext ModuleContext { get; set; }
 			public IList<IDeobfuscatorInfo> DeobfuscatorInfos { get; set; }
 			public IList<IObfuscatedFile> Files { get; set; }
@@ -81,7 +83,11 @@ namespace de4dot.cui {
 		public FilesDeobfuscator(Options options) => this.options = options;
 
 		public void DoIt() {
-			if (options.DetectObfuscators)
+			if (options.BatchOutput != null && options.BatchRoot == null)
+				throw new UserException("--batch-output requires --batch.");
+			if (options.BatchRoot != null)
+				new BatchProcessor(options, deobfuscatorContext, CreateDeobfuscators, DeobfuscateAllFiles, Rename).Run();
+			else if (options.DetectObfuscators)
 				DetectObfuscators();
 			else if (options.OneFileAtATime)
 				DeobfuscateOneAtATime();

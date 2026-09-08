@@ -54,6 +54,7 @@ namespace de4dot.code {
 		}
 
 		public int NumIgnoredMessages => numIgnoredMessages;
+		public int NumErrors { get; private set; }
 
 		public Logger() : this(2, true) { }
 
@@ -82,6 +83,7 @@ namespace de4dot.code {
 		public void LogErrorDontIgnore(string format, params object[] args) => Log(false, null, LoggerEvent.Error, format, args);
 
 		public void Log(bool canIgnore, object sender, LoggerEvent loggerEvent, string format, params object[] args) {
+			if (loggerEvent == LoggerEvent.Error) NumErrors++;
 			if (IgnoresEvent(loggerEvent))
 				return;
 			if (canIgnore && IgnoreMessage(loggerEvent, format, args))
