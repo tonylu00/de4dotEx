@@ -70,46 +70,62 @@ namespace de4dot.code.renamer.asmmodules {
 		}
 
 		class ModuleHash {
-			ModulesDict modulesDict = new ModulesDict();
-			Module mainModule = null;
+			readonly List<Module> modules = new List<Module>();
+			public void Add(Module module) => modules.Add(module);
 
-			public void Add(Module module) {
-				var asm = module.ModuleDefMD.Assembly;
-				if (asm != null && ReferenceEquals(asm.ManifestModule, module.ModuleDefMD)) {
-					if (mainModule != null) {
-						throw new UserException(
-							"Two modules in the same assembly are main modules.\n" +
-							"Is one 32-bit and the other 64-bit?\n" +
-							$"  Module1: \"{module.ModuleDefMD.Location}\"" +
-							$"  Module2: \"{mainModule.ModuleDefMD.Location}\"");
-					}
-					mainModule = module;
+			public IEnumerable<Module> Lookup(IAssembly assembly, ModuleDef source, string moduleName = null) {
+				var candidates = new List<Module>();
+				foreach (var module in modules) {
+					var def = module.ModuleDefMD;
+					if (moduleName != null ? def.Name == moduleName :
+						def.Assembly == null || ReferenceEquals(def.Assembly.ManifestModule, def))
+						candidates.Add(module);
 				}
 
-				modulesDict.Add(module);
+				// A self-reference belongs to this loaded copy, including alternate executables
+				// with the same assembly identity in the same directory.
+				var own = candidates.FindAll(m => source.Assembly != null &&
+					ReferenceEquals(m.ModuleDefMD.Assembly, source.Assembly));
+				if (own.Count != 0)
+					candidates = own;
+				else {
+					// Compatibility directories form separate binding contexts. Do not fall
+					// through to a different copy merely because it contains a missing type.
+					var directory = System.IO.Path.GetDirectoryName(source.Location);
+					while (!string.IsNullOrEmpty(directory)) {
+						var local = candidates.FindAll(m => SamePath(
+							System.IO.Path.GetDirectoryName(m.ModuleDefMD.Location), directory));
+						if (local.Count != 0) {
+							candidates = local;
+							break;
+						}
+						directory = System.IO.Path.GetDirectoryName(directory);
+					}
+				}
+
+				if (candidates.Count > 1) {
+					var exact = candidates.FindAll(m => m.ModuleDefMD.Assembly?.FullName == assembly.FullName);
+					if (exact.Count != 0) candidates = exact;
+				}
+				if (candidates.Count > 1 && moduleName == null) {
+					var conventional = candidates.FindAll(m =>
+						SamePath(System.IO.Path.GetFileNameWithoutExtension(m.ModuleDefMD.Location), assembly.Name));
+					if (conventional.Count != 0) candidates = conventional;
+				}
+				if (candidates.Count > 1)
+					throw new UserException($"Ambiguous assembly reference '{assembly.FullName}' from '{source.Location}': " +
+						string.Join(", ", candidates.ConvertAll(m => m.ModuleDefMD.Location)));
+				if (candidates.Count == 0 || moduleName != null)
+					return candidates;
+
+				var selected = candidates[0];
+				return modules.FindAll(m => ReferenceEquals(m, selected) ||
+					selected.ModuleDefMD.Assembly != null &&
+					ReferenceEquals(m.ModuleDefMD.Assembly, selected.ModuleDefMD.Assembly));
 			}
 
-			public Module Lookup(string moduleName) => modulesDict.Lookup(moduleName);
-			public IEnumerable<Module> Modules => modulesDict.Modules;
-		}
-
-		class ModulesDict {
-			IDictionary<string, Module> modulesDict = new Dictionary<string, Module>(StringComparer.Ordinal);
-
-			public void Add(Module module) {
-				var moduleName = module.ModuleDefMD.Name.String;
-				if (Lookup(moduleName) != null)
-					throw new ApplicationException($"Module \"{moduleName}\" was found twice");
-				modulesDict[moduleName] = module;
-			}
-
-			public Module Lookup(string moduleName) {
-				if (modulesDict.TryGetValue(moduleName, out var module))
-					return module;
-				return null;
-			}
-
-			public IEnumerable<Module> Modules => modulesDict.Values;
+			static bool SamePath(string a, string b) => string.Equals(a, b,
+				System.IO.Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 		}
 
 		public bool Empty => modules.Count == 0;
@@ -353,7 +369,7 @@ namespace de4dot.code.renamer.asmmodules {
 
 			var scopeType = scope.ScopeType;
 			if (scopeType == ScopeType.AssemblyRef)
-				return FindModules((AssemblyRef)scope);
+				return FindModules((AssemblyRef)scope, type.Module);
 
 			if (scopeType == ScopeType.ModuleDef) {
 				var modules = FindModules((ModuleDef)scope);
@@ -377,19 +393,16 @@ namespace de4dot.code.renamer.asmmodules {
 				var moduleHash = assemblyHash.Lookup(asm);
 				if (moduleHash == null)
 					return null;
-				var module = moduleHash.Lookup(scope.ScopeName);
-				if (module == null)
-					return null;
-				return new List<Module> { module };
+				return moduleHash.Lookup(asm, type.Module, scope.ScopeName);
 			}
 
 			throw new ApplicationException($"scope is an unsupported type: {scope.GetType()}");
 		}
 
-		IEnumerable<Module> FindModules(AssemblyRef assemblyRef) {
+		IEnumerable<Module> FindModules(AssemblyRef assemblyRef, ModuleDef source) {
 			var moduleHash = assemblyHash.Lookup(assemblyRef);
 			if (moduleHash != null)
-				return moduleHash.Modules;
+				return moduleHash.Lookup(assemblyRef, source);
 			return null;
 		}
 
