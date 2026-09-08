@@ -21,7 +21,9 @@ The output folder must be new and outside the input tree. Batch mode stages the 
 
 Supported protectors are detected automatically. Unknown components skip deobfuscation and declaration renaming. Their dependency references are updated if protected symbols change; otherwise their bytes are copied unchanged. Protected/unprotected virtual contracts retain their method names. Compatibility copies remain separate and references are selected by their referring assembly's context, not by simple filename alone. File copying uses up to four workers; deobfuscation and graph-wide renaming remain sequential because the existing backends share mutable state.
 
-Existing transformation switches apply, including `--dont-rename` and `--default-strtyp none`. `--batch` cannot be mixed with individual input files, recursive scan options, detection-only mode or one-file-at-a-time mode. XAML/BAML rewriting and application-specific reflection or custom loader policies remain limitations; successful batch output alone is not proof of application equivalence.
+Batch renaming also repairs constant `typeof(T).Assembly.GetType("Name")` lookups, binding the string to that assembly's type before names change. This includes unprotected callers. Computed strings, other reflection patterns and custom loader policies are not covered.
+
+Existing transformation switches apply, including `--dont-rename` and `--default-strtyp none`. `--batch` cannot be mixed with individual input files, recursive scan options, detection-only mode or one-file-at-a-time mode. XAML/BAML rewriting remains a limitation; successful batch output alone is not proof of application equivalence.
 
 ***WARNING***: `de4dot` uses `BinaryFormatter` in some backends (`BabelNET` and `CodeVeil`).
 Code obfuscated with these obfuscators (or the one, that tricks `de4dot` to detect so) will cause execution of arbitrary code during deobfuscation. For example it may be possible to write code tracking attempts of applying `de4dot`.

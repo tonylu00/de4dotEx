@@ -15,6 +15,12 @@ class EmitFixture {
         }
         using var library = ModuleDefMD.Load(args[0]);
         using var client = ModuleDefMD.Load(args[1]);
+        foreach (var module in new[] { library, client })
+            foreach (var type in module.GetTypes())
+                foreach (var method in type.Methods)
+                    if (method.HasBody)
+                        foreach (var instruction in method.Body.Instructions)
+                            if (instruction.OpCode == OpCodes.Ldstr && (string)instruction.Operand == "Api") instruction.Operand = "<Api>";
         if (args.Length > 3 && args[3] == "batch")
             library.Types.Add(new TypeDefUser("DotfuscatorAttribute", library.CorLibTypes.Object.TypeDefOrRef));
         foreach (var type in client.GetTypeRefs())

@@ -14,7 +14,9 @@ foreach($version in 1,2){
  $build=Join-Path $OutputDirectory "build-$version"
  foreach($part in 'library','client'){New-Item -ItemType Directory -Path (Join-Path $build $part) | Out-Null}
  "public class Api { public static int Get() { return Helper.Value(); } public virtual int v() { return 0; } } public class Helper { public static int Value() { return $version; } }" | Set-Content (Join-Path $build 'library\Library.cs')
+ if($Batch){Add-Content (Join-Path $build 'library\Library.cs') 'public class ReflectionProbe { public static int Read() { return (int)typeof(Helper).Assembly.GetType("Api").GetMethod("Get").Invoke(null, null); } }'}
  "using System; class Derived : Api { public override int v() { return 7; } } class Program { static int Main() { Api instance=new Derived(); if(Api.Get() != $version || instance.v() != 7) throw new Exception(`"Wrong compatibility assembly or virtual binding`" ); Console.WriteLine(`"PASS: binding context $version`" ); return 0; } }" | Set-Content (Join-Path $build 'client\Client.cs')
+ if($Batch){$clientFile=Join-Path $build 'client\Client.cs'; (Get-Content $clientFile -Raw).Replace('return 0;', 'if (ReflectionProbe.Read() != Api.Get() || (int)typeof(Api).Assembly.GetType("Api").GetMethod("Get").Invoke(null, null) != Api.Get()) throw new Exception("Reflection binding changed"); return 0;') | Set-Content $clientFile}
  '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net48</TargetFramework><AssemblyVersion>1.0.0.0</AssemblyVersion></PropertyGroup></Project>' | Set-Content (Join-Path $build 'library\Library.csproj')
  '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net48</TargetFramework><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><ProjectReference Include="..\library\Library.csproj" /></ItemGroup></Project>' | Set-Content (Join-Path $build 'client\Client.csproj')
  dotnet build (Join-Path $build 'client\Client.csproj') -c Release --nologo -v quiet

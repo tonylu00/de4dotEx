@@ -89,13 +89,14 @@ namespace de4dot.cui {
 					foreach (var method in group.Methods.Where(m => modifiable.Contains(m.MethodDef.Module)))
 						boundaryNames[method.MethodDef] = method.MethodDef.Name;
 				}
+				var reflectionReferences = new ReflectionTypeReferences(graph);
 				rename(protectedFiles);
 				// Unprotected overrides/interfaces keep their declarations. Keep the matching
 				// protected slots stable, then update every captured caller to the final name.
 				foreach (var pair in boundaryNames) pair.Key.Name = pair.Value;
 				int referenceOnly = 0;
 				foreach (var module in graph.TheModules) {
-					bool changed = ApplyReferences(module);
+					bool changed = ApplyReferences(module) | reflectionReferences.Apply(module.ModuleDefMD);
 					bool cleaned = protectedFiles.Contains(module.ObfuscatedFile);
 					if (!cleaned && !changed) continue;
 					if (!cleaned) { referenceOnly++; Logger.n("Updating dependency references only: {0}", module.Filename); }
