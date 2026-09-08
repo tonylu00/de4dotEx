@@ -138,6 +138,20 @@ namespace de4dot.code.renamer {
 
 		void PrepareRenameFields() {
 			var checker = NameChecker;
+			var occupied = new HashSet<string>(StringComparer.Ordinal);
+			string SourceTypeName(string name) {
+				int arity = name.IndexOf('`');
+				return arity < 0 ? name : name.Substring(0, arity);
+			}
+			occupied.Add(SourceTypeName(newName));
+			foreach (var method in type.AllMethods) occupied.Add(Method(method).newName);
+			foreach (var property in type.AllProperties) occupied.Add(Property(property).newName);
+			foreach (var evt in type.AllEvents) occupied.Add(Event(evt).newName);
+			foreach (var parameter in type.GenericParams) occupied.Add(GenericParam(parameter).newName);
+			foreach (var nested in type.NestedTypes)
+				if (memberInfos.TryGetType(nested, out var info)) occupied.Add(SourceTypeName(info.newName));
+			// Field generators must also avoid names owned by other member kinds.
+			foreach (var name in occupied) variableNameState.AddFieldName(name);
 
 			if (type.TypeDef.IsEnum) {
 				var instanceFields = GetInstanceFields();
@@ -159,10 +173,16 @@ namespace de4dot.code.renamer {
 			}
 			foreach (var fieldDef in type.AllFieldsSorted) {
 				var fieldInfo = Field(fieldDef);
-				if (fieldInfo.renamed)
+				if (fieldInfo.renamed) {
+					occupied.Add(fieldInfo.newName);
 					continue;
-				if (!checker.IsValidFieldName(fieldInfo.oldName))
-					fieldInfo.Rename(fieldInfo.suggestedName ?? variableNameState.GetNewFieldName(fieldDef.FieldDef));
+				}
+				bool collision = !occupied.Add(fieldInfo.oldName);
+				if (collision || !checker.IsValidFieldName(fieldInfo.oldName)) {
+					fieldInfo.Rename(collision ? variableNameState.GetNewFieldName(fieldDef.FieldDef, false) :
+						fieldInfo.suggestedName ?? variableNameState.GetNewFieldName(fieldDef.FieldDef));
+					occupied.Add(fieldInfo.newName);
+				}
 			}
 		}
 
