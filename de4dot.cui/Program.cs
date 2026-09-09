@@ -107,6 +107,7 @@ namespace de4dot.cui {
 		}
 
 		public static int Main(string[] args) {
+			if (CustomNames.BatchNameMap.TryRun(args, out int nameMapExit)) return nameMapExit;
 			int exitCode = 0;
 
 			const string showAllMessagesEnvName = "SHOWALLMESSAGES";

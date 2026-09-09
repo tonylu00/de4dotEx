@@ -455,3 +455,7 @@ Add the following block under the `mcpServers` object:
 4. Type: `stdio`
 5. Command: `dotnet /absolute/path/to/de4dotEx/publish-net8.0-mcp/de4dot.mcp.dll`
 }
+
+### Custom batch name maps
+
+Export, preview and apply behavior-based type, method and parameter names across an application tree. See [CUSTOM_NAMES.md](CUSTOM_NAMES.md) or run the CLI with --name-map-help.
