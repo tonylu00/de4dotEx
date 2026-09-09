@@ -20,6 +20,22 @@ foreach($variant in @('Old','New')) {
  New-Item -ItemType Directory -Path (Join-Path $root "$variant\empty") | Out-Null
  'data' | Set-Content (Join-Path $root "$variant\file.txt")
 }
+# An optional, unrelated plugin may have dependencies absent from the tree.
+# Its unresolved hierarchy must not block renaming a different method family.
+$optional=Join-Path $OutputDirectory 'optional'
+New-Item -ItemType Directory -Path "$optional\dependency","$optional\plugin" | Out-Null
+'public class MissingBase {}' | Set-Content "$optional\dependency\Base.cs"
+'<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net48</TargetFramework></PropertyGroup></Project>' | Set-Content "$optional\dependency\Absent.csproj"
+'public class UnrelatedPlugin : MissingBase { public virtual int a(int value) { return value; } }' | Set-Content "$optional\plugin\Plugin.cs"
+'<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net48</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include="..\dependency\Absent.csproj" /></ItemGroup></Project>' | Set-Content "$optional\plugin\Plugin.csproj"
+dotnet build "$optional\plugin\Plugin.csproj" -c Release --nologo -v quiet
+if($LASTEXITCODE -ne 0){throw 'Optional plugin build failed.'}
+Copy-Item "$optional\plugin\bin\Release\net48\Plugin.dll" $root
+New-Item -ItemType Directory -Path "$optional\related" | Out-Null
+'public class RelatedPlugin : MissingBase, I<int> { public int a(int value) { return value; } }' | Set-Content "$optional\related\Related.cs"
+'<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net48</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include="..\dependency\Absent.csproj" /><ProjectReference Include="..\..\Old\lib\Library.csproj" /></ItemGroup></Project>' | Set-Content "$optional\related\Related.csproj"
+dotnet build "$optional\related\Related.csproj" -c Release --nologo -v quiet
+if($LASTEXITCODE -ne 0){throw 'Related plugin build failed.'}
 $originalHashes=@(Get-ChildItem $root -Recurse -File | Get-FileHash | ForEach-Object Hash)
 $toolIndex=0
 foreach($tool in $Tools) {
@@ -70,6 +86,12 @@ foreach($tool in $Tools) {
  $explicitMap.Save($explicitPath)
  & $tool --name-map-input $ambiguousRoot --name-map $explicitPath --name-map-preview
  if($LASTEXITCODE -ne 0){throw 'Explicit duplicate binding failed.'}
+ $incompleteRoot=Join-Path $OutputDirectory "incomplete-input-$toolIndex"
+ Copy-Item -LiteralPath $root -Destination $incompleteRoot -Recurse
+ Copy-Item "$optional\related\bin\Release\net48\Related.dll" (Join-Path $incompleteRoot 'Old')
+ $incompleteOutput=Join-Path $OutputDirectory "incomplete-output-$toolIndex"
+ & $tool --name-map-input $incompleteRoot --name-map $mapPath --name-map-output $incompleteOutput
+ if($LASTEXITCODE -eq 0 -or (Test-Path $incompleteOutput)){throw 'An unresolved mapped hierarchy was accepted.'}
  foreach($negative in @('stale','collision','external','parameter','reflection','methodcollision','genericparameter')) {
   [xml]$bad=Get-Content $inventory
   $badModule=$bad.NameMap.Module | Where-Object Path -eq 'Old\Library.dll'

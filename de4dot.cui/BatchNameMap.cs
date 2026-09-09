@@ -181,17 +181,20 @@ namespace CustomNames {
                     }
                 }
             }
-            IEnumerable<TypeDef> Ancestors(TypeDef type, HashSet<TypeDef> seen) {
+            IEnumerable<TypeDef> Ancestors(TypeDef type, HashSet<TypeDef> seen, List<string> errors) {
                 if (!seen.Add(type)) yield break;
                 yield return type;
                 foreach (var reference in type.Interfaces.Select(i=>i.Interface).Concat(type.BaseType==null ? new ITypeDefOrRef[0] : new[]{type.BaseType})) {
-                    var ancestor=reference.ResolveTypeDef();
-                    if(ancestor==null) throw new InvalidOperationException("Unresolved hierarchy: " + reference.FullName);
-                    foreach(var t in Ancestors(ancestor,seen)) yield return t;
+                    TypeDef ancestor=null;
+                    try { ancestor=reference.ResolveTypeDef(); }
+                    catch(InvalidOperationException ex) { errors.Add(ex.Message); }
+                    if(ancestor==null) { errors.Add("Unresolved hierarchy: " + reference.FullName); continue; }
+                    foreach(var t in Ancestors(ancestor,seen,errors)) yield return t;
                 }
             }
             public void ValidateAndCapture() {
                 var types=modules.Values.SelectMany(m=>m.GetTypes()).ToArray();
+                var hierarchies=new Dictionary<TypeDef,Tuple<MethodDef[],List<string>>>();
                 // Conservatively keep overloads sharing an implicit virtual name together.
                 // Signature-only matching is insufficient for constructed generic interfaces.
                 bool added;
@@ -200,14 +203,21 @@ namespace CustomNames {
                     foreach(var type in types) {
                         var mapped=names.Keys.OfType<MethodDef>().Where(m=>m.IsVirtual).ToArray();
                         if(mapped.Length==0) break;
-                        var methods=Ancestors(type,new HashSet<TypeDef>()).SelectMany(t=>t.Methods).Where(m=>m.IsVirtual).ToArray();
+                        Tuple<MethodDef[],List<string>> hierarchy;
+                        if(!hierarchies.TryGetValue(type,out hierarchy)) {
+                            var errors=new List<string>();
+                            hierarchy=Tuple.Create(Ancestors(type,new HashSet<TypeDef>(),errors).SelectMany(t=>t.Methods).Where(m=>m.IsVirtual).ToArray(),errors);
+                            hierarchies.Add(type,hierarchy);
+                        }
+                        var methods=hierarchy.Item1;
                         foreach(var target in mapped.Where(methods.Contains)) {
+                            if(hierarchy.Item2.Count!=0) throw new InvalidOperationException(string.Join(Environment.NewLine,hierarchy.Item2));
                             foreach(var related in methods.Where(m=>m.Name==target.Name)) {
                                 if(!modules.Values.Contains(related.Module)) throw new InvalidOperationException("External virtual contract cannot be renamed: "+related.FullName);
                                 Add(related,names[target]);
                             }
                         }
-                        foreach(var method in type.Methods) foreach(var impl in method.Overrides) {
+                        foreach(var method in type.Methods.Where(m=>names.ContainsKey(m))) foreach(var impl in method.Overrides) {
                             var declaration=impl.MethodDeclaration.ResolveMethodDef();
                             if(declaration==null) throw new InvalidOperationException("Unresolved override.");
                             // MethodImpl metadata binds explicit implementations independent of names.
@@ -324,6 +334,7 @@ namespace CustomNames {
             readonly string root;
             readonly Dictionary<string,ModuleDefMD> modules;
             readonly Dictionary<string,AssemblyDef> bindings=new Dictionary<string,AssemblyDef>(Paths);
+            readonly Dictionary<string,AssemblyDef> resolved=new Dictionary<string,AssemblyDef>(Paths);
             readonly AssemblyResolver fallback=new AssemblyResolver();
             public ContextResolver(string root,Dictionary<string,ModuleDefMD> modules) { this.root=root; this.modules=modules; fallback.EnableTypeDefCache=false; fallback.PostSearchPaths.Add(root); }
             public void Bind(XElement map) {
@@ -336,6 +347,14 @@ namespace CustomNames {
                 }
             }
             public AssemblyDef Resolve(IAssembly assembly,ModuleDef source) {
+                var key=(source==null ? "" : source.Location)+"|"+assembly.FullName;
+                AssemblyDef result;
+                if(resolved.TryGetValue(key,out result)) return result;
+                result=ResolveCore(assembly,source);
+                resolved.Add(key,result);
+                return result;
+            }
+            AssemblyDef ResolveCore(IAssembly assembly,ModuleDef source) {
                 AssemblyDef bound;
                 if(source!=null && bindings.TryGetValue(source.Location+"|"+assembly.FullName,out bound)) return bound;
                 var candidates=modules.Values.Where(m=>m.Assembly!=null && m.Assembly.FullName==assembly.FullName).ToArray();
