@@ -10,11 +10,12 @@ static class CallGraphFixture {
             Build(reference, false, false); Build(target, true, reversed);
             var report = Scanner.Scan(reference, target);
             var names = report.Candidates.ToDictionary(c => c.SuggestedName);
-            if (names.Count != 4 || names["ReadValue"].MatchRound != 1 || names["GetResult"].MatchRound != 2 ||
+            if (names.Count != 6 || names["ReadGenericValue"].MatchRound != 1 || names["GetGenericResult"].MatchRound != 2 ||
+                names["GetGenericResult"].MatchedCallees.Length != 1 || names["ReadValue"].MatchRound != 1 || names["GetResult"].MatchRound != 2 ||
                 names["ParseResult"].MatchRound != 3 || names["CountItems"].MatchRound != 1 ||
                 names["GetResult"].MatchedCallees.Length != 1 || names["ParseResult"].MatchedCallees.Length != 1)
                 throw new Exception("Call graph correspondence failed.");
-            if (names.ContainsKey("GetChanged") || names.ContainsKey("GetAmbiguous")) throw new Exception("Unproven callee used as a match.");
+            if (names.ContainsKey("GetChanged") || names.ContainsKey("GetAmbiguous") || names.ContainsKey("GetChangedGeneric")) throw new Exception("Unproven callee used as a match.");
         }
         Console.WriteLine("PASS generic-call propagation, recursive self calls, changed/ambiguous callees and reversed declaration order.");
     }
@@ -40,6 +41,17 @@ static class CallGraphFixture {
         }
         var leaf = Method("ReadValue", "qzx", true); Leaf(leaf, 5);
         var first = Method("GetResult", "zqx"); Caller(first, new MethodSpecUser(leaf, new GenericInstMethodSig(module.CorLibTypes.String)), 7);
+        var container = new TypeDefUser("Sample", "Container`1", module.CorLibTypes.Object.TypeDefOrRef) { Attributes = TypeAttributes.Public };
+        container.GenericParameters.Add(new GenericParamUser(0, GenericParamAttributes.NonVariant, "T"));
+        module.Types.Add(container);
+        var genericLeaf = Method("ReadGenericValue", "xzq", true);
+        type.Methods.Remove(genericLeaf); container.Methods.Add(genericLeaf); Leaf(genericLeaf, 23);
+        var instantiated = new TypeSpecUser(new GenericInstSig(new ClassSig(container), module.CorLibTypes.String));
+        var member = new MemberRefUser(module, genericLeaf.Name, genericLeaf.MethodSig, instantiated);
+        var genericCaller = Method("GetGenericResult", "xzz");
+        Caller(genericCaller, new MethodSpecUser(member, new GenericInstMethodSig(module.CorLibTypes.Int32)), 29);
+        var changedGeneric = Method("GetChangedGeneric", "zxx");
+        Caller(changedGeneric, new MethodSpecUser(member, new GenericInstMethodSig(renamed ? module.CorLibTypes.String : module.CorLibTypes.Int32)), 31);
         var second = Method("ParseResult", "xqz"); Caller(second, first, 11);
         var other = Method("Other", "Other"); Leaf(other, 9);
         var changed = Method("GetChanged", "qqx"); Caller(changed, renamed ? other : first, 17);

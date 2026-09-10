@@ -65,8 +65,21 @@ public static class Scanner {
         !m.IsSpecialName && !m.IsPinvokeImpl && !m.HasOverrides && m.Body.Instructions.Count >= 6;
 
     static string Fingerprint(MethodDef m) => ContextFingerprint(m, null);
-    static MethodDef LocalDefinition(IMethod method) => method is MethodDef definition ? definition :
-        method is MethodSpec specification ? specification.Method as MethodDef : null;
+    static MethodDef LocalDefinition(IMethod method) {
+        if (method is MethodDef definition) return definition;
+        if (method is MethodSpec specification) return LocalDefinition(specification.Method);
+        if (method is not MemberRef member || !member.IsMethodRef) return null;
+        // Generic declaring types use MemberRef even for calls inside this module.
+        // Resolve only embedded TypeDefs, never an assembly resolver: a sibling
+        // compatibility directory may contain the same identity with another body.
+        var type = member.Class as TypeDef;
+        if (member.Class is TypeSpec { TypeSig: GenericInstSig generic })
+            type = generic.GenericType.TypeDefOrRef as TypeDef;
+        if (type == null || type.Module != member.Module) return null;
+        var comparer = new SigComparer();
+        var matches = type.Methods.Where(m => m.Name == member.Name && comparer.Equals(m.MethodSig, member.MethodSig)).Take(2).ToArray();
+        return matches.Length == 1 ? matches[0] : null;
+    }
     static string ContextFingerprint(MethodDef m, IReadOnlyDictionary<MethodDef, string> anchors) {
         m.Body.SimplifyMacros(m.Parameters);
         m.Body.SimplifyBranches();

@@ -101,3 +101,11 @@ new ones for this version pair. Its synthetic regression additionally recovers a
 generic-call wrapper, a second-level caller and a recursive method, and rejects
 changed/ambiguous callees with either declaration order. The unchanged 6.3
 self-comparison still proposes zero names.
+
+Local calls encoded as `MemberRef` on an instantiated generic declaring type
+also participate in call correspondence, including generic `MethodSpec` calls.
+Resolution requires a unique matching method signature on a TypeDef in the
+same physical module; the scanner does not resolve external assemblies for
+this step. Declaring-type and method generic arguments remain in the fingerprint.
+The regression verifies caller recovery, changed generic argument rejection,
+and independence from declaration order.
