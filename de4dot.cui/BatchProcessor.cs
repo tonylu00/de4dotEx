@@ -83,6 +83,9 @@ namespace de4dot.cui {
 				var renameJournal = new BatchRenameJournal(files, snapshot);
 				context.SetData(de4dot.code.renamer.ReflectionNames.ContextKey,
 					de4dot.code.renamer.ReflectionNames.Collect(files.Select(f => (ModuleDef)f.ModuleDefMD)));
+				// Module-local inference cannot synchronize external MethodRefs and
+				// can invalidate the graph before the renamer even sees it.
+				context.SetData(BinaryContractPolicy.ContextKey, options.PreservePublicApi);
 				deobfuscate(protectedFiles);
 				var metadataRepaired = new HashSet<ModuleDef>();
 				foreach (var file in files) {
@@ -132,6 +135,7 @@ namespace de4dot.cui {
 				context.ClearData(BatchAssemblyContexts.ContextKey);
 				context.ClearData(BatchAssemblyBindings.ContextKey);
 				context.ClearData(de4dot.code.renamer.ReflectionNames.ContextKey);
+				context.ClearData(BinaryContractPolicy.ContextKey);
 				foreach (var file in files) file.Dispose();
 				if (published) {
 					// Only our new, validated staging tree can be removed.

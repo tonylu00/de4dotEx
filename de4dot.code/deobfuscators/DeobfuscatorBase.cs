@@ -135,7 +135,11 @@ namespace de4dot.code.deobfuscators {
 		public virtual IDeobfuscator ModuleReloaded(ModuleDefMD module) =>
 			throw new ApplicationException("moduleReloaded() must be overridden by the deobfuscator");
 
+		protected bool PreserveBinarySignatures { get; private set; }
 		public virtual void DeobfuscateBegin() {
+			// ObfuscatedFile clears DeobfuscatedFile before processing method
+			// bodies. End-stage policy must survive that lifecycle transition.
+			PreserveBinarySignatures = BinaryContractPolicy.PreserveSignatures(DeobfuscatedFile);
 			ModuleBytes = null;
 		}
 		public virtual void DeobfuscateMethodBegin(Blocks blocks) { }

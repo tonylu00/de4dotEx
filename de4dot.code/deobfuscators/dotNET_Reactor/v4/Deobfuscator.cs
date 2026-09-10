@@ -697,7 +697,7 @@ namespace de4dot.code.deobfuscators.dotNET_Reactor.v4 {
 			FreePEImage();
 			RemoveProxyDelegates(proxyCallFixer, false);
 			RemoveInlinedMethods();
-			if (options.RestoreTypes)
+			if (options.RestoreTypes && !PreserveBinarySignatures)
 				new TypesRestorer(module).Deobfuscate();
 
 			var decrypterType = GetDecrypterType();

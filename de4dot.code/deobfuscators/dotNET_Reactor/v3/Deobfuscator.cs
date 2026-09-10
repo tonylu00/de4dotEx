@@ -262,7 +262,7 @@ namespace de4dot.code.deobfuscators.dotNET_Reactor.v3 {
 
 		public override void DeobfuscateEnd() {
 			RemoveInlinedMethods();
-			if (options.RestoreTypes)
+			if (options.RestoreTypes && !PreserveBinarySignatures)
 				new TypesRestorer(module).Deobfuscate();
 
 			if (canRemoveDecrypterType && !IsTypeCalled(decrypterType.Type)) {
