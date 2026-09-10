@@ -47,6 +47,8 @@ namespace de4dot.code.renamer {
 	}
 
 	public class Renamer {
+		// Compatibility mode protects callers which are not part of this invocation.
+		public bool PreservePublicApi { get; set; } = true;
 		public RenamerFlags RenamerFlags { get; set; }
 		public bool RenameNamespaces {
 			get => (RenamerFlags & RenamerFlags.RenameNamespaces) != 0;
@@ -246,6 +248,7 @@ namespace de4dot.code.renamer {
 			modules.OnTypesRenamed();
 			RestorePropertiesAndEvents(groups);
 			PrepareRenameMemberDefs(groups);
+			PreserveMethodContracts(groups);
 			RenameMemberDefs();
 			RenameMemberRefs();
 			RemoveUselessOverrides(groups);
@@ -413,6 +416,10 @@ namespace de4dot.code.renamer {
 		void Rename(MTypeDef type) {
 			var typeDef = type.TypeDef;
 			var info = memberInfos.Type(type);
+			if (PreservePublicApi && PublicType(typeDef)) {
+				info.newName = info.oldName;
+				info.newNamespace = info.oldNamespace;
+			}
 
 			if (isVerbose)
 				Logger.v("Type: {0} ({1:X8})", Utils.RemoveNewlines(typeDef.FullName), typeDef.MDToken.ToUInt32());
@@ -450,6 +457,39 @@ namespace de4dot.code.renamer {
 			}
 		}
 
+		static bool PublicType(TypeDef type) => type != null && (type.DeclaringType == null ? type.IsPublic :
+			(type.IsNestedPublic || type.IsNestedFamily || type.IsNestedFamilyOrAssembly) && PublicType(type.DeclaringType));
+
+		static bool PublicMethod(MethodDef method) => method != null && PublicType(method.DeclaringType) &&
+			(method.IsPublic || method.IsFamily || method.IsFamilyOrAssembly);
+
+		void PreserveMethodContracts(MethodNameGroups groups) {
+			if (!PreservePublicApi) return;
+			var preserve = new HashSet<MMethodDef>();
+			foreach (var type in modules.AllTypes) {
+				var checker = memberInfos.Type(type).NameChecker;
+				foreach (var method in type.AllMethods) {
+					var name = memberInfos.Method(method).oldName;
+					// Overload counts and signatures are not evidence of obfuscation. Keep
+					// valid names, including managed P/Invoke aliases and explicit implementations.
+					if (PublicMethod(method.MethodDef) || checker.IsValidMethodName(name)) preserve.Add(method);
+				}
+			}
+			foreach (var group in groups.GetAllGroups()) {
+				if (group.Methods.Any(m => !m.Owner.HasModule || preserve.Contains(m)))
+					foreach (var method in group.Methods.Where(m => m.Owner.HasModule)) preserve.Add(method);
+			}
+			foreach (var method in preserve) {
+				var info = memberInfos.Method(method);
+				info.newName = info.oldName;
+				if (PublicMethod(method.MethodDef))
+					foreach (var parameter in method.AllParamDefs) {
+						var paramInfo = memberInfos.Param(parameter);
+						paramInfo.newName = paramInfo.oldName;
+					}
+			}
+		}
+
 		void RenameMemberDefs() {
 			if (isVerbose)
 				Logger.v("Renaming member definitions #2");
@@ -484,6 +524,9 @@ namespace de4dot.code.renamer {
 			bool isDelegateType = isDelegateClass.Check(info.type);
 			foreach (var fieldDef in info.type.AllFieldsSorted) {
 				var fieldInfo = memberInfos.Field(fieldDef);
+				var field = fieldDef.FieldDef;
+				if (PreservePublicApi && PublicType(field.DeclaringType) && (field.IsPublic || field.IsFamily || field.IsFamilyOrAssembly))
+					fieldInfo.newName = fieldInfo.oldName;
 				if (!fieldInfo.GotNewName())
 					continue;
 				if (isDelegateType && DontRenameDelegateFields)
@@ -502,6 +545,8 @@ namespace de4dot.code.renamer {
 				return;
 			foreach (var propDef in info.type.AllPropertiesSorted) {
 				var propInfo = memberInfos.Property(propDef);
+				if (PreservePublicApi && propDef.PropertyDef.GetMethods.Concat(propDef.PropertyDef.SetMethods).Any(PublicMethod))
+					propInfo.newName = propInfo.oldName;
 				if (!propInfo.GotNewName())
 					continue;
 				propDef.PropertyDef.Name = propInfo.newName;
@@ -518,6 +563,8 @@ namespace de4dot.code.renamer {
 				return;
 			foreach (var eventDef in info.type.AllEventsSorted) {
 				var eventInfo = memberInfos.Event(eventDef);
+				if (PreservePublicApi && new[] { eventDef.EventDef.AddMethod, eventDef.EventDef.RemoveMethod, eventDef.EventDef.InvokeMethod }.Any(PublicMethod))
+					eventInfo.newName = eventInfo.oldName;
 				if (!eventInfo.GotNewName())
 					continue;
 				eventDef.EventDef.Name = eventInfo.newName;

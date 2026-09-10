@@ -44,6 +44,8 @@ namespace de4dot.cui {
 			CheckAncestors(root);
 			CheckAncestors(Path.GetDirectoryName(output));
 			var paths = Tree(root).ToList();
+			if (File.Exists(Path.Combine(root, BatchRenameJournal.Filename)))
+				throw new UserException("Input contains reserved batch report filename: " + BatchRenameJournal.Filename);
 			var parent = Path.GetDirectoryName(output);
 			Directory.CreateDirectory(parent);
 			var work = Path.Combine(parent, ".de4dot-" + Guid.NewGuid().ToString("N"));
@@ -78,6 +80,7 @@ namespace de4dot.cui {
 				}
 				ConfigureBindings(files, snapshot);
 				var protectedFiles = files.Where(f => f.Deobfuscator.Type != "un").ToList();
+				var renameJournal = new BatchRenameJournal(files, snapshot);
 				deobfuscate(protectedFiles);
 				var metadataRepaired = new HashSet<ModuleDef>();
 				foreach (var file in files) {
@@ -112,6 +115,7 @@ namespace de4dot.cui {
 					File.SetAttributes(module.ObfuscatedFile.NewFilename, FileAttributes.Normal);
 					module.ObfuscatedFile.Save();
 				}
+				renameJournal.Save(result, options.PreservePublicApi);
 				foreach (var file in files) file.Dispose();
 				files.Clear();
 				if (Logger.Instance.NumErrors != initialErrors)

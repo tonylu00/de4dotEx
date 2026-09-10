@@ -90,6 +90,7 @@ namespace de4dot.cui {
 		}
 
 		void AddAllOptions() {
+			miscOptions.Add(new NoArgOption(null, "rename-public-api", "Allow legacy API and readable method renaming; external callers may break", () => filesOptions.PreservePublicApi = false));
 			miscOptions.Add(new OneArgOption(null, "batch", "Process an application folder as one dependency graph", "dir", val => filesOptions.BatchRoot = val));
 			miscOptions.Add(new OneArgOption(null, "batch-output", "New output folder for --batch", "dir", val => filesOptions.BatchOutput = val));
 			miscOptions.Add(new OneArgOption(null, "assembly-contexts", "Per-input dependency context XML for --batch", "file", val => filesOptions.AssemblyContexts = val));

@@ -33,6 +33,7 @@ namespace de4dot.cui {
 		IDeobfuscatorContext deobfuscatorContext = new DeobfuscatorContext();
 
 		public class Options {
+			public bool PreservePublicApi { get; set; } = true;
 			public string BatchRoot { get; set; }
 			public string BatchOutput { get; set; }
 			public string AssemblyContexts { get; set; }
@@ -409,6 +410,7 @@ namespace de4dot.cui {
 			if (!options.RenameSymbols)
 				return;
 			var renamer = new Renamer(deobfuscatorContext, theFiles, options.RenamerFlags);
+			renamer.PreservePublicApi = options.PreservePublicApi;
 			renamer.Rename();
 		}
 	}

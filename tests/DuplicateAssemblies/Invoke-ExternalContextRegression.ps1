@@ -13,7 +13,7 @@ $manifest=Join-Path $OutputDirectory 'contexts.xml'
 '<AssemblyContexts><Context Source="host/Client2.exe" Directory="external" Config="external/App.exe.config" /></AssemblyContexts>' | Set-Content $manifest
 $hashes=@(Get-ChildItem $hostInput,$external -Recurse -File | Get-FileHash | ForEach-Object Hash)
 $output=Join-Path $OutputDirectory 'output'
-& $De4dot --batch $hostInput --batch-output $output --assembly-contexts $manifest --default-strtyp none --df-name '^(?!v$)[A-Za-z_][A-Za-z_0-9]*$'
+& $De4dot --rename-public-api --batch $hostInput --batch-output $output --assembly-contexts $manifest --default-strtyp none --df-name '^(?!v$)[A-Za-z_][A-Za-z_0-9]*$'
 if($LASTEXITCODE -ne 0){throw 'External context batch failed'}
 & (Join-Path $output 'Client1.exe')
 if($LASTEXITCODE -ne 0){throw 'Host API changed'}
@@ -30,6 +30,7 @@ New-Item -ItemType Directory -Path $broken | Out-Null
 Copy-Item (Join-Path $hostInput 'Library.dll') $broken
 '<AssemblyContexts><Context Source="host/Client2.exe" Directory="broken" /></AssemblyContexts>' | Set-Content $manifest
 $brokenOutput=Join-Path $OutputDirectory 'broken-output'
-& $De4dot --batch $hostInput --batch-output $brokenOutput --assembly-contexts $manifest --default-strtyp none
+& $De4dot --rename-public-api --batch $hostInput --batch-output $brokenOutput --assembly-contexts $manifest --default-strtyp none
 if($LASTEXITCODE -eq 0 -or (Test-Path $brokenOutput)){throw 'External missing-member errors were ignored'}
 Write-Output 'PASS: external dependency context, config probing, preserved consumer and missing-member publication gate'
+

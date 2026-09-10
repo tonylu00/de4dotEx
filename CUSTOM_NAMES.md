@@ -89,3 +89,35 @@ checks each frontend with duplicate-identity libraries, generic interface/overri
 dispatch, generic calls, nested enum type references, parameter names, tree/input
 preservation and invalid-map rejection. The shared `BatchNameMap.cs` implementations
 are kept byte-identical in the three repositories.
+
+## Automatic rename compatibility and audit
+
+Automatic renaming now preserves externally visible types/namespaces, public and
+protected methods/fields/properties/events, and public method parameter names.
+Valid method names are retained, including overloads and managed P/Invoke aliases.
+A virtual/interface group is kept intact when it contains a preserved contract.
+A short public name is not enough evidence to rename an API. Private invalid names
+still receive placeholders; these are not recovered original semantic names.
+Use `--rename-public-api` to explicitly select the old aggressive behavior. This
+switch also permits configured API renames. Custom `--name-map` mode remains an
+explicit opt-in and is independent of this automatic policy.
+
+Each `--batch` output includes `de4dot-rename-map.xml`. The journal records changed
+and removed type/method/field/property/event/parameter definitions, old/new names
+and full signatures, physical module paths, MVIDs, SHA-256 hashes and scoped input
+and output tokens. Output definitions are checked by reloading the saved image
+before publication. Parameters use the owning method token and metadata sequence.
+`*Utf16` attributes contain lossless base64 UTF-16LE when obfuscated names cannot
+be represented in XML; readable attributes are also supplied when valid.
+
+Use the exact path/hash/token tuple to trace SDK references or construct a reviewed
+custom name map. This journal is an audit/migration format, not an input accepted
+by `--name-map`; removed members and arbitrary invalid names cannot be restored by
+that mode. It does not reconstruct method bodies or recover vendor names. Keep
+the journal with its binary tree. An input with that reserved filename is rejected
+to prevent silently overwriting an earlier processing history.
+
+External reflection, serialized names, signing identities and APIs absent from a
+particular SDK version still require separate validation. The regression in
+`tests/ApiRename` runs a caller compiled against the original library without
+processing that caller, and checks overloads, generic calls, dispatch and P/Invoke.

@@ -41,14 +41,14 @@ $hashes=@($inputs | Get-FileHash | ForEach-Object Hash)
 foreach($order in 'forward','reverse'){
  $ordered=@($inputs)
  if($order -eq 'reverse'){[Array]::Reverse($ordered)}
- $arguments=@('--no-cflow-deob','--dont-restore-props','--un-name','^[A-Za-z_][A-Za-z_0-9]*$')
+ $arguments=@('--rename-public-api','--no-cflow-deob','--dont-restore-props','--un-name','^[A-Za-z_][A-Za-z_0-9]*$')
  foreach($file in $ordered){
   $destination=Join-Path $OutputDirectory (Join-Path $order (Join-Path $file.Directory.Name $file.Name))
   if(!$Batch){New-Item -ItemType Directory -Force -Path (Split-Path $destination) | Out-Null}
   $arguments+=@('-f',$file.FullName,'-p','un','--keep-types','-o',$destination)
  }
  if($Batch){
-  & $De4dot --no-cflow-deob --default-strtyp none --df-name '^(?!v$)[A-Za-z_][A-Za-z_0-9]*$' --batch (Join-Path $OutputDirectory 'input') --batch-output (Join-Path $OutputDirectory $order)
+  & $De4dot --rename-public-api --no-cflow-deob --default-strtyp none --df-name '^(?!v$)[A-Za-z_][A-Za-z_0-9]*$' --batch (Join-Path $OutputDirectory 'input') --batch-output (Join-Path $OutputDirectory $order)
  }else{ & $De4dot @arguments }
  if($LASTEXITCODE -ne 0){throw 'Duplicate batch failed.'}
  foreach($version in 1,2){foreach($name in 'Client.exe','AlternateClient.exe'){
@@ -64,7 +64,7 @@ foreach($order in 'forward','reverse'){
    if((Get-FileHash (Join-Path $OutputDirectory "input\$name")).Hash -ne (Get-FileHash (Join-Path $OutputDirectory "$order\$name")).Hash){throw 'Unchanged file was rewritten.'}
   }
   if(!(Test-Path (Join-Path $OutputDirectory "$order\empty") -PathType Container)){throw 'Empty directory missing.'}
-  if(@(Get-ChildItem (Join-Path $OutputDirectory $order) -Recurse -File).Count -ne $inputs.Count){throw 'File structure changed.'}
+  if(@(Get-ChildItem (Join-Path $OutputDirectory $order) -Recurse -File).Count -ne ($inputs.Count + 1)){throw 'File structure changed.'}
  }
 }
 if(Compare-Object $hashes @($inputs | Get-FileHash | ForEach-Object Hash)){throw 'Input assemblies changed.'}
@@ -78,13 +78,13 @@ if($Batch){
  }
  $flatHashes=@(Get-ChildItem $flat -File | Get-FileHash | ForEach-Object Hash)
  $without=Join-Path $OutputDirectory 'flat-without-bindings'
- & $De4dot --no-cflow-deob --default-strtyp none --batch $flat --batch-output $without
+ & $De4dot --rename-public-api --no-cflow-deob --default-strtyp none --batch $flat --batch-output $without
  if($LASTEXITCODE -eq 0 -or (Test-Path $without)){throw 'Mixed APIs without the required binding were silently accepted.'}
  foreach($order in 'forward','reverse'){
   $bindingArgs=@('--batch-binding','Client1.exe=Library.dll','--batch-binding','Client2.exe=LegacyLibrary.dll')
   if($order -eq 'reverse'){$bindingArgs=@('--batch-binding','Client2.exe=LegacyLibrary.dll','--batch-binding','Client1.exe=Library.dll')}
   $flatOutput=Join-Path $OutputDirectory "flat-$order"
-  & $De4dot --no-cflow-deob --default-strtyp none --df-name '^(?!v$)[A-Za-z_][A-Za-z_0-9]*$' --batch $flat --batch-output $flatOutput @bindingArgs
+  & $De4dot --rename-public-api --no-cflow-deob --default-strtyp none --df-name '^(?!v$)[A-Za-z_][A-Za-z_0-9]*$' --batch $flat --batch-output $flatOutput @bindingArgs
   if($LASTEXITCODE -ne 0){throw 'Explicit same-directory binding failed.'}
   foreach($version in 1,2){
    # Reproduce each custom loader's dependency choice in an isolated process.
@@ -102,14 +102,14 @@ if($Batch){
  foreach($bad in @(@('Client2.exe=missing.dll'),@('../input/context-2/Client.exe=Library.dll'),@('Client2.exe=LegacyLibrary.dll','Client2.exe=Library.dll'),@('Client1.exe=Client2.exe'),@('malformed'))){
   $guardOutput=Join-Path $OutputDirectory "binding-invalid-$guardIndex"
   $guardArgs=@(); foreach($value in $bad){$guardArgs+=@('--batch-binding',$value)}
-  & $De4dot --batch $flat --batch-output $guardOutput @guardArgs
+  & $De4dot --rename-public-api --batch $flat --batch-output $guardOutput @guardArgs
   if($LASTEXITCODE -eq 0 -or (Test-Path $guardOutput)){throw 'Invalid binding was accepted.'}
   $guardIndex++
  }
  Write-Output 'PASS: explicit same-directory dependency bindings and validation guards'
- & $De4dot --batch $root --batch-output (Join-Path $root 'nested-output')
+ & $De4dot --rename-public-api --batch $root --batch-output (Join-Path $root 'nested-output')
  if($LASTEXITCODE -eq 0 -or (Test-Path (Join-Path $root 'nested-output'))){throw 'Overlap guard failed.'}
- & $De4dot --batch $root --batch-output (Join-Path $OutputDirectory 'forward')
+ & $De4dot --rename-public-api --batch $root --batch-output (Join-Path $OutputDirectory 'forward')
  if($LASTEXITCODE -eq 0){throw 'Existing output was accepted.'}
  $broken=Join-Path $OutputDirectory 'invalid-input'
  Copy-Item $root $broken -Recurse
@@ -119,7 +119,8 @@ if($Batch){
  if($LASTEXITCODE -ne 0){throw 'Broken input emission failed.'}
  Copy-Item $temporary $library -Force
  $unpublished=Join-Path $OutputDirectory 'invalid-output'
- & $De4dot --no-cflow-deob --default-strtyp none --batch $broken --batch-output $unpublished
+ & $De4dot --rename-public-api --no-cflow-deob --default-strtyp none --batch $broken --batch-output $unpublished
  if($LASTEXITCODE -eq 0 -or (Test-Path $unpublished)){throw 'Invalid graph was published.'}
  Write-Output 'PASS: output guards and unresolved-reference publication gate'
 }
+
