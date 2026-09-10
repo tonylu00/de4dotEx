@@ -53,8 +53,11 @@ namespace de4dot.cui {
    e.SetAttributeValue(key+"Utf16",Convert.ToBase64String(bytes));
    try { XmlConvert.VerifyXmlChars(text); e.SetAttributeValue(key,text); } catch(XmlException) { }
   }
-  public void Save(string root,bool preserveApi) {
+  public void Save(string root,bool preserveApi,string stringMode,bool controlFlow,bool renameSymbols) {
    var doc=new XElement("De4dotRenameMap",new XAttribute("Version",1),new XAttribute("PreservePublicApi",preserveApi),new XAttribute("Purpose","Audit and SDK migration; tokens are scoped by module path and hash"));
+   doc.SetAttributeValue("RequestedStringDecryption",stringMode);
+   doc.SetAttributeValue("ControlFlowDeobfuscation",controlFlow);
+   doc.SetAttributeValue("RenameSymbols",renameSymbols);
    foreach(var e in entries) {
     var output=Path.Combine(root,e.Path);
     using(var saved=ModuleDefMD.Load(output)) {

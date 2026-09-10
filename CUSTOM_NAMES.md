@@ -113,6 +113,13 @@ and removed type/method/field/property/event/parameter definitions, old/new name
 and full signatures, physical module paths, MVIDs, SHA-256 hashes and scoped input
 and output tokens. Output definitions are checked by reloading the saved image
 before publication. Parameters use the owning method token and metadata sequence.
+The root also records `RequestedStringDecryption`, `ControlFlowDeobfuscation`
+and `RenameSymbols`. `Default` means the selected protector chooses its string
+mode; `None` explicitly leaves decoder calls intact. `--only-cflow-deob` selects
+`None`. For readable string extraction, explicitly use `--default-strtyp static`
+(after `--only-cflow-deob` if composing those options). Preserving decoder calls
+can keep runtime behavior correct while leaving unreadable literals in exported
+source, so compilation alone is not a string-extraction test.
 `*Utf16` attributes contain lossless base64 UTF-16LE when obfuscated names cannot
 be represented in XML; readable attributes are also supplied when valid.
 

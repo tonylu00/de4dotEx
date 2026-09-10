@@ -28,6 +28,8 @@ if($LASTEXITCODE -ne 0){throw 'Original fixture failed'}
 $output=Join-Path $OutputDirectory 'processed'
 & $De4dot --default-strtyp static --dont-rename --batch (Split-Path $original) --batch-output $output
 if($LASTEXITCODE -ne 0){throw 'String batch failed'}
+[xml]$journal=Get-Content (Join-Path $output 'de4dot-rename-map.xml') -Raw
+if($journal.De4dotRenameMap.RequestedStringDecryption -ne 'Static' -or $journal.De4dotRenameMap.RenameSymbols -ne 'false'){throw 'Static string mode missing from batch journal'}
 & (Join-Path $output 'Fixture.exe')
 if($LASTEXITCODE -ne 0){throw 'Processed string behavior changed'}
 Copy-Item (Join-Path $PSScriptRoot 'Verify.cs') $verifyDir
@@ -36,3 +38,11 @@ $dnlib=[Security.SecurityElement]::Escape((Join-Path (Split-Path ([IO.Path]::Get
 dotnet run --project (Join-Path $verifyDir 'Verify.csproj') -c Release -- (Join-Path $output 'Fixture.exe')
 if($LASTEXITCODE -ne 0){throw 'Literal extraction verification failed'}
 if((Get-FileHash $original).Hash -ne $hash){throw 'Input changed'}
+$controlOutput=Join-Path $OutputDirectory 'control-flow-only'
+& $De4dot --only-cflow-deob --batch (Split-Path $original) --batch-output $controlOutput
+if($LASTEXITCODE){throw 'Control-flow-only batch failed'}
+[xml]$journal=Get-Content (Join-Path $controlOutput 'de4dot-rename-map.xml') -Raw
+if($journal.De4dotRenameMap.RequestedStringDecryption -ne 'None' -or $journal.De4dotRenameMap.ControlFlowDeobfuscation -ne 'true'){throw 'Control-flow-only mode missing from batch journal'}
+& (Join-Path $controlOutput 'Fixture.exe')
+if($LASTEXITCODE){throw 'Control-flow-only runtime changed'}
+'PASS explicit static and control-flow-only string modes recorded'

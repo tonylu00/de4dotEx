@@ -120,7 +120,7 @@ namespace de4dot.cui {
 					File.SetAttributes(module.ObfuscatedFile.NewFilename, FileAttributes.Normal);
 					module.ObfuscatedFile.Save();
 				}
-				renameJournal.Save(result, options.PreservePublicApi);
+				renameJournal.Save(result, options.PreservePublicApi, (options.DefaultStringDecrypterType ?? DecrypterType.Default).ToString(), options.ControlFlowDeobfuscation, options.RenameSymbols);
 				foreach (var file in files) file.Dispose();
 				files.Clear();
 				if (Logger.Instance.NumErrors != initialErrors)
