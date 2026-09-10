@@ -13,7 +13,18 @@ namespace de4dot.code.renamer {
 				// names throughout the graph instead of guessing which overload it means.
 				if (!method.Body.Instructions.Any(i => i.Operand is IMethod call && IsLookup(call))) continue;
 				foreach (var instruction in method.Body.Instructions)
-					if (instruction.OpCode == OpCodes.Ldstr && instruction.Operand is string name) names.Add(name);
+					if (instruction.OpCode == OpCodes.Ldstr && instruction.Operand is string name) {
+						names.Add(name);
+						// Reflection uses '+' for nesting; dnlib uses '/'. Retaining a
+						// nested name also requires retaining each enclosing type name.
+						string typeName = name.Split(',')[0].Replace('+', '/');
+						while (true) {
+							names.Add(typeName);
+							int separator = typeName.LastIndexOf('/');
+							if (separator < 0) break;
+							typeName = typeName.Substring(0, separator);
+						}
+					}
 			}
 			return names;
 		}
@@ -23,6 +34,8 @@ namespace de4dot.code.renamer {
 			switch ((string)method.Name) {
 				case "GetType": case "GetMethod": case "GetField": case "GetProperty":
 				case "GetEvent": case "GetMember": case "GetNestedType": case "InvokeMember": return true;
+				case "GetFields": case "GetMethods": case "GetProperties": case "GetEvents":
+				case "GetMembers": case "GetNestedTypes": case "GetTypes": return true;
 				default: return false;
 			}
 		}

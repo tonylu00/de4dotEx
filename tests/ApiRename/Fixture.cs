@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 [assembly:Dotfuscator]
 public class DotfuscatorAttribute:Attribute {}
+class aaa { internal class bbb { public int Read()=>23; } }
 public interface abc { int a(int value); }
 public class Api:abc {
  private int z=17;
