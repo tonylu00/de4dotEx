@@ -21,6 +21,12 @@ Ordinary deobfuscation options cannot be combined with custom-name mode.
 
 ## Agent workflow and format
 
+For a clearer build of the same project, the read-only
+[NameCandidates tool](tools/NameCandidates/README.md) produces cross-version
+method-name suggestions with scoped IL evidence and exact input identities.
+It compares physical module paths and reports ambiguous matches. Review its
+suggestions before adding them to a binary or dnSpy source-only map.
+
 1. Export an inventory from the exact restored binaries being analyzed.
 2. Inspect behavior, call sites, signatures and parameter uses in dnSpy.
 3. Set `NewName` for evidence-supported suggestions. Optional `Reason` and
