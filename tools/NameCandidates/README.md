@@ -109,3 +109,17 @@ same physical module; the scanner does not resolve external assemblies for
 this step. Declaring-type and method generic arguments remain in the fingerprint.
 The regression verifies caller recovery, changed generic argument rejection,
 and independence from declaration order.
+
+To use method names reviewed during the reference version's source export:
+
+```powershell
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --reference-source-map reference-names.xml reference-tree target-tree new-report.json
+```
+
+The reference map's input directory, physical module paths, hashes, MVIDs, method
+tokens, original names and signatures are checked before matching. Its method
+aliases seed vocabulary and suggested names; matching still uses the original
+metadata and IL. Type/parameter aliases do not establish type correspondence.
+Meaningful existing target names remain protected. Reports record the reference
+map path and hash, and no input binaries are changed. This allows reviewed names
+to inform later versions without renaming the reference assembly's SDK surface.

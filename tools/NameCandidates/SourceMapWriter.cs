@@ -8,6 +8,45 @@ using dnlib.DotNet;
 namespace De4dot.NameCandidates;
 
 public static class SourceMapWriter {
+    internal sealed record ReferenceNames(string Hash, Dictionary<uint, string> Names);
+    internal static Dictionary<string, ReferenceNames> ReadReferenceNames(byte[] mapBytes, string referenceRoot) {
+        var settings = new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null };
+        using var stream = new MemoryStream(mapBytes, false);
+        using var reader = System.Xml.XmlReader.Create(stream, settings);
+        var map = XDocument.Load(reader).Root;
+        if (map?.Name != "SourceNameMap" || (string)map.Attribute("Version") != "1" ||
+            !string.Equals(Root((string)map.Attribute("InputDirectory")), Root(referenceRoot), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Reference source map has a different input tree or format.");
+        var result = new Dictionary<string, ReferenceNames>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in map.Elements("Module")) {
+            string relative = (string)row.Attribute("Path") ?? throw new InvalidDataException("Missing reference module path.");
+            string path = Path.GetFullPath(Path.Combine(referenceRoot, relative));
+            if (Path.IsPathRooted(relative) || !path.StartsWith(Root(referenceRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Reference module leaves input tree.");
+            for (string current = path; current != null; current = Path.GetDirectoryName(current)) {
+                if ((File.GetAttributes(current) & System.IO.FileAttributes.ReparsePoint) != 0) throw new IOException("Linked reference input is not supported.");
+                if (string.Equals(current, Root(referenceRoot), StringComparison.OrdinalIgnoreCase)) break;
+            }
+            byte[] bytes = File.ReadAllBytes(path);
+            using var module = ModuleDefMD.Load(bytes);
+            if (!string.Equals((string)row.Attribute("Sha256"), Convert.ToHexString(SHA256.HashData(bytes)), StringComparison.OrdinalIgnoreCase) ||
+                !Guid.TryParse((string)row.Attribute("Mvid"), out var mvid) || mvid != module.Mvid)
+                throw new InvalidDataException("Stale reference source map module.");
+            var names = new Dictionary<uint, string>();
+            if (!result.TryAdd(Path.GetRelativePath(referenceRoot, path), new ReferenceNames(Convert.ToHexString(SHA256.HashData(bytes)), names))) throw new InvalidDataException("Duplicate reference module.");
+            foreach (var entry in row.Elements("Method").Where(e => e.Attribute("NewName") != null)) {
+                string token = (string)entry.Attribute("Token") ?? "";
+                if (token.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) token = token.Substring(2);
+                uint raw = uint.Parse(token, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+                string name = (string)entry.Attribute("NewName");
+                if (!Identifier(name) || module.ResolveToken(raw) is not MethodDef method ||
+                    method.Name.String != (string)entry.Attribute("ExpectedName") || method.FullName != (string)entry.Attribute("Signature"))
+                    throw new InvalidDataException("Invalid reference method alias or definition.");
+                if (!names.TryAdd(raw, name)) throw new InvalidDataException("Duplicate reference method alias.");
+            }
+        }
+        return result;
+    }
     static bool Identifier(string name) => name != null && Regex.IsMatch(name, @"\A[A-Za-z_][A-Za-z0-9_]*\z");
     static string Root(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
     public static void Write(string reportPath, string targetRoot, string outputPath) {

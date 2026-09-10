@@ -81,4 +81,33 @@ foreach (string test in new[] { "hash", "signature", "path", "duplicate", "ident
 }
 Console.WriteLine("PASS guarded source-map conversion, collision suffixes, stale input rejection and no overwrite.");
 CallGraphFixture.Run(root);
+var seed = report.Candidates.First(c => c.Module.Replace('\\', '/') == "host/Library.dll");
+string referenceMapPath = Path.Combine(root, "reference-names.xml");
+var referenceMap = new System.Xml.Linq.XDocument(new System.Xml.Linq.XElement("SourceNameMap",
+    new System.Xml.Linq.XAttribute("Version", "1"), new System.Xml.Linq.XAttribute("InputDirectory", reference),
+    new System.Xml.Linq.XElement("Module", new System.Xml.Linq.XAttribute("Path", seed.Module),
+        new System.Xml.Linq.XAttribute("Mvid", seed.ReferenceMvid), new System.Xml.Linq.XAttribute("Sha256", seed.ReferenceHash),
+        new System.Xml.Linq.XElement("Method", new System.Xml.Linq.XAttribute("Token", seed.ReferenceToken),
+            new System.Xml.Linq.XAttribute("ExpectedName", "GetValue"), new System.Xml.Linq.XAttribute("Signature", seed.Reference),
+            new System.Xml.Linq.XAttribute("NewName", "ReadValue")))));
+referenceMap.Save(referenceMapPath);
+var seeded = Scanner.Scan(reference, target, referenceMapPath);
+Require(seeded.Candidates.Single(c => c.Module == seed.Module).SuggestedName == "ReadValue", "Reviewed reference alias propagated");
+Require(seeded.Candidates.Single(c => c.Module != seed.Module).SuggestedName == "GetValue", "Reference alias stays in physical module");
+Require(seeded.ReferenceSourceMapHash.Length == 64, "Reference map provenance");
+Require(Scanner.Scan(reference, reference, referenceMapPath).Candidates.Count == 0, "Meaningful existing names remain unchanged");
+foreach (string invalidReference in new[] { "hash", "signature", "path", "duplicate" }) {
+    var invalidMap = new System.Xml.Linq.XDocument(referenceMap);
+    var moduleRow = invalidMap.Descendants("Module").Single();
+    var methodRow = moduleRow.Element("Method");
+    if (invalidReference == "hash") moduleRow.SetAttributeValue("Sha256", "00");
+    if (invalidReference == "signature") methodRow.SetAttributeValue("Signature", "wrong method");
+    if (invalidReference == "path") moduleRow.SetAttributeValue("Path", "../escape.dll");
+    if (invalidReference == "duplicate") moduleRow.Add(new System.Xml.Linq.XElement(methodRow));
+    invalidMap.Save(referenceMapPath);
+    bool staleRejected = false;
+    try { Scanner.Scan(reference, target, referenceMapPath); } catch (InvalidDataException) { staleRejected = true; }
+    Require(staleRejected, "Reference map guard: " + invalidReference);
+}
+Console.WriteLine("PASS reviewed reference method aliases, physical scope, provenance and stale-map rejection.");
 Console.WriteLine("PASS physical duplicates, dependency scopes, version changes, ambiguity, readable names, native/missing inputs, provenance, deterministic output and no overwrite.");

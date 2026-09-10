@@ -17,8 +17,10 @@ public static class Program {
                 Console.WriteLine("Source map written; runtime names are restored by dnSpy's SDK build task.");
                 return 0;
             }
-            if (args.Length != 3) throw new ArgumentException("Usage: NameCandidates <reference-tree> <target-tree> <new-report.json>");
-            var report = Scanner.Scan(args[0], args[1]);
+            string referenceMap = null;
+            if (args.Length == 5 && args[0] == "--reference-source-map") { referenceMap = args[1]; args = args.Skip(2).ToArray(); }
+            if (args.Length != 3) throw new ArgumentException("Usage: NameCandidates [--reference-source-map map.xml] <reference-tree> <target-tree> <new-report.json>");
+            var report = Scanner.Scan(args[0], args[1], referenceMap);
             using var output = new FileStream(args[2], FileMode.CreateNew, FileAccess.Write);
             JsonSerializer.Serialize(output, report, new JsonSerializerOptions { WriteIndented = true });
             Console.WriteLine($"Compared {report.Modules} physical modules; {report.Candidates.Count} review candidates; {report.Skips.Count} skipped cases.");
@@ -40,6 +42,8 @@ public sealed class Report {
     public int Format { get; } = 1;
     public string ReferenceRoot { get; init; }
     public string TargetRoot { get; init; }
+    public string ReferenceSourceMap { get; init; }
+    public string ReferenceSourceMapHash { get; init; }
     public int Modules { get; set; }
     public List<Candidate> Candidates { get; init; } = new();
     public List<Skip> Skips { get; } = new();
@@ -130,12 +134,17 @@ public static class Scanner {
     }
     static bool Visible(TypeDef t) => t.IsNested ? (t.IsNestedPublic || t.IsNestedFamily || t.IsNestedFamilyOrAssembly) && Visible(t.DeclaringType) : t.IsPublic;
 
-    public static Report Scan(string referenceRoot, string targetRoot) {
+    public static Report Scan(string referenceRoot, string targetRoot, string referenceSourceMap = null) {
         referenceRoot = Path.GetFullPath(referenceRoot); targetRoot = Path.GetFullPath(targetRoot);
         if (!Directory.Exists(referenceRoot) || !Directory.Exists(targetRoot)) throw new DirectoryNotFoundException("Both input trees must exist.");
         if ((File.GetAttributes(referenceRoot) & FileAttributes.ReparsePoint) != 0 || (File.GetAttributes(targetRoot) & FileAttributes.ReparsePoint) != 0)
             throw new IOException("Linked input roots are not supported.");
-        var report = new Report { ReferenceRoot = referenceRoot, TargetRoot = targetRoot };
+        byte[] referenceMapBytes = referenceSourceMap == null ? null : File.ReadAllBytes(referenceSourceMap);
+        var report = new Report { ReferenceRoot = referenceRoot, TargetRoot = targetRoot,
+            ReferenceSourceMap = referenceSourceMap == null ? null : Path.GetFullPath(referenceSourceMap),
+            ReferenceSourceMapHash = referenceMapBytes == null ? null : Hash(referenceMapBytes) };
+        var referenceNames = referenceMapBytes == null ? new Dictionary<string, SourceMapWriter.ReferenceNames>(StringComparer.OrdinalIgnoreCase) :
+            SourceMapWriter.ReadReferenceNames(referenceMapBytes, referenceRoot);
         // Pair by relative path, never by simple assembly name: compatibility
         // directories can contain unrelated implementations of the same identity.
         var references = Files(referenceRoot).ToDictionary(p => Path.GetRelativePath(referenceRoot, p), StringComparer.OrdinalIgnoreCase);
@@ -143,6 +152,8 @@ public static class Scanner {
             string relative = Path.GetRelativePath(targetRoot, targetPath);
             if (!references.TryGetValue(relative, out var referencePath)) { report.Skips.Add(new(relative, "No reference at the same physical path")); continue; }
             var aBytes = File.ReadAllBytes(referencePath); var bBytes = File.ReadAllBytes(targetPath);
+            if (referenceNames.TryGetValue(relative, out var checkedNames) && checkedNames.Hash != Hash(aBytes))
+                throw new InvalidDataException("Reference module changed after source-map validation.");
             ModuleDefMD a = null, b = null;
             try {
                 try { a = ModuleDefMD.Load(aBytes); b = ModuleDefMD.Load(bBytes); }
@@ -151,10 +162,12 @@ public static class Scanner {
                     report.Skips.Add(new(relative, "Assembly name, culture or key differs")); continue;
                 }
                 report.Modules++;
-                if (aBytes.AsSpan().SequenceEqual(bBytes)) continue;
+                if (aBytes.AsSpan().SequenceEqual(bBytes) && !referenceNames.ContainsKey(relative)) continue;
                 var before = a.GetTypes().SelectMany(t => t.Methods).Where(Eligible).ToArray();
                 var after = b.GetTypes().SelectMany(t => t.Methods).Where(Eligible).ToArray();
-                var vocabulary = MethodNameAnalysis.Learn(before.Select(m => m.Name.String),
+                referenceNames.TryGetValue(relative, out var moduleNames);
+                string ReferenceName(MethodDef method) => moduleNames != null && moduleNames.Names.TryGetValue(method.MDToken.Raw, out var alias) ? alias : method.Name.String;
+                var vocabulary = MethodNameAnalysis.Learn(before.Select(ReferenceName),
                     before.SelectMany(m => m.Body.Instructions).Where(i => i.OpCode == OpCodes.Ldstr).Select(i => (string)i.Operand));
                 var anchors = new Dictionary<MethodDef, string>();
                 var paired = new HashSet<MethodDef>();
@@ -204,10 +217,11 @@ public static class Scanner {
                 string aHash = Hash(aBytes), bHash = Hash(bBytes);
                 foreach (var pair in pairs) {
                     var method = pair.Target; var reference = pair.Reference;
-                    if (method.Name == reference.Name || MethodNameAnalysis.Analyze(reference.Name.String, vocabulary) != MethodNameAnalysis.Assessment.Meaningful ||
+                    string suggestedName = ReferenceName(reference);
+                    if (method.Name == suggestedName || MethodNameAnalysis.Analyze(suggestedName, vocabulary) != MethodNameAnalysis.Assessment.Meaningful ||
                         MethodNameAnalysis.Analyze(method.Name.String, vocabulary) == MethodNameAnalysis.Assessment.Meaningful) continue;
                     report.Candidates.Add(new(relative, a.Assembly.FullName, b.Assembly.FullName, a.Mvid.ToString(), b.Mvid.ToString(), aHash, bHash,
-                        reference.MDToken.ToString(), method.MDToken.ToString(), reference.FullName, method.FullName, reference.Name.String, pair.Key,
+                        reference.MDToken.ToString(), method.MDToken.ToString(), reference.FullName, method.FullName, suggestedName, pair.Key,
                         Visible(method.DeclaringType) && (method.IsPublic || method.IsFamily || method.IsFamilyOrAssembly)) { MatchRound = pair.Round, MatchedCallees = pair.Callees });
                 }
             }
