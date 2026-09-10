@@ -48,7 +48,9 @@ namespace de4dot.cui {
   static void Text(XElement e,string key,string text) {
    text=text??"";
    // Obfuscated metadata can contain NUL and other characters forbidden in XML.
-   e.SetAttributeValue(key+"Utf16",Convert.ToBase64String(Encoding.Unicode.GetBytes(text)));
+   var bytes=new byte[text.Length*2];
+   for(int i=0;i<text.Length;i++) { bytes[i*2]=(byte)text[i]; bytes[i*2+1]=(byte)(text[i]>>8); }
+   e.SetAttributeValue(key+"Utf16",Convert.ToBase64String(bytes));
    try { XmlConvert.VerifyXmlChars(text); e.SetAttributeValue(key,text); } catch(XmlException) { }
   }
   public void Save(string root,bool preserveApi) {

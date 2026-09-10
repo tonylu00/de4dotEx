@@ -121,3 +121,11 @@ External reflection, serialized names, signing identities and APIs absent from a
 particular SDK version still require separate validation. The regression in
 `tests/ApiRename` runs a caller compiled against the original library without
 processing that caller, and checks overloads, generic calls, dispatch and P/Invoke.
+
+The conservative policy also scans reflection lookup methods across the full
+batch, including unprocessed dependencies. Matching literal names are kept for
+types, fields, methods, properties and events. This is intentionally conservative
+when the receiver is not statically known: it can leave extra short names intact.
+Dynamically constructed/encrypted names and callers outside the supplied tree
+cannot be inferred. Include runtime plug-ins and use explicit mappings only after
+reviewing their reflection contracts.

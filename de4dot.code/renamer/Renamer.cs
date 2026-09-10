@@ -49,6 +49,7 @@ namespace de4dot.code.renamer {
 	public class Renamer {
 		// Compatibility mode protects callers which are not part of this invocation.
 		public bool PreservePublicApi { get; set; } = true;
+		readonly HashSet<string> reflectionNames;
 		public RenamerFlags RenamerFlags { get; set; }
 		public bool RenameNamespaces {
 			get => (RenamerFlags & RenamerFlags.RenameNamespaces) != 0;
@@ -190,6 +191,10 @@ namespace de4dot.code.renamer {
 
 		public Renamer(IDeobfuscatorContext deobfuscatorContext, IEnumerable<IObfuscatedFile> files, RenamerFlags flags) {
 			RenamerFlags = flags;
+			files = files.ToList();
+			reflectionNames = ReflectionNames.Collect(files.Select(f => (ModuleDef)f.ModuleDefMD));
+			if (deobfuscatorContext.GetData(ReflectionNames.ContextKey) is HashSet<string> externalNames)
+				reflectionNames.UnionWith(externalNames);
 
 			WarnIfXaml(files);
 
@@ -416,7 +421,7 @@ namespace de4dot.code.renamer {
 		void Rename(MTypeDef type) {
 			var typeDef = type.TypeDef;
 			var info = memberInfos.Type(type);
-			if (PreservePublicApi && PublicType(typeDef)) {
+			if (PreservePublicApi && (PublicType(typeDef) || reflectionNames.Contains(info.oldName) || reflectionNames.Contains(info.oldFullName))) {
 				info.newName = info.oldName;
 				info.newNamespace = info.oldNamespace;
 			}
@@ -472,7 +477,7 @@ namespace de4dot.code.renamer {
 					var name = memberInfos.Method(method).oldName;
 					// Overload counts and signatures are not evidence of obfuscation. Keep
 					// valid names, including managed P/Invoke aliases and explicit implementations.
-					if (PublicMethod(method.MethodDef) || checker.IsValidMethodName(name)) preserve.Add(method);
+					if (PublicMethod(method.MethodDef) || checker.IsValidMethodName(name) || reflectionNames.Contains(name)) preserve.Add(method);
 				}
 			}
 			foreach (var group in groups.GetAllGroups()) {
@@ -525,7 +530,7 @@ namespace de4dot.code.renamer {
 			foreach (var fieldDef in info.type.AllFieldsSorted) {
 				var fieldInfo = memberInfos.Field(fieldDef);
 				var field = fieldDef.FieldDef;
-				if (PreservePublicApi && PublicType(field.DeclaringType) && (field.IsPublic || field.IsFamily || field.IsFamilyOrAssembly))
+				if (PreservePublicApi && (reflectionNames.Contains(fieldInfo.oldName) || PublicType(field.DeclaringType) && (field.IsPublic || field.IsFamily || field.IsFamilyOrAssembly)))
 					fieldInfo.newName = fieldInfo.oldName;
 				if (!fieldInfo.GotNewName())
 					continue;
@@ -545,7 +550,7 @@ namespace de4dot.code.renamer {
 				return;
 			foreach (var propDef in info.type.AllPropertiesSorted) {
 				var propInfo = memberInfos.Property(propDef);
-				if (PreservePublicApi && propDef.PropertyDef.GetMethods.Concat(propDef.PropertyDef.SetMethods).Any(PublicMethod))
+				if (PreservePublicApi && (reflectionNames.Contains(propInfo.oldName) || propDef.PropertyDef.GetMethods.Concat(propDef.PropertyDef.SetMethods).Any(PublicMethod)))
 					propInfo.newName = propInfo.oldName;
 				if (!propInfo.GotNewName())
 					continue;
@@ -563,7 +568,7 @@ namespace de4dot.code.renamer {
 				return;
 			foreach (var eventDef in info.type.AllEventsSorted) {
 				var eventInfo = memberInfos.Event(eventDef);
-				if (PreservePublicApi && new[] { eventDef.EventDef.AddMethod, eventDef.EventDef.RemoveMethod, eventDef.EventDef.InvokeMethod }.Any(PublicMethod))
+				if (PreservePublicApi && (reflectionNames.Contains(eventInfo.oldName) || new[] { eventDef.EventDef.AddMethod, eventDef.EventDef.RemoveMethod, eventDef.EventDef.InvokeMethod }.Any(PublicMethod)))
 					eventInfo.newName = eventInfo.oldName;
 				if (!eventInfo.GotNewName())
 					continue;

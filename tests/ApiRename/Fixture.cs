@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 public class DotfuscatorAttribute:Attribute {}
 public interface abc { int a(int value); }
 public class Api:abc {
+ private int z=17;
  public int a(int value)=>value+1;
  public string Open(string value)=>value+"!";
  public int Open(int value)=>value+2;

@@ -123,4 +123,3 @@ if($Batch){
  if($LASTEXITCODE -eq 0 -or (Test-Path $unpublished)){throw 'Invalid graph was published.'}
  Write-Output 'PASS: output guards and unresolved-reference publication gate'
 }
-

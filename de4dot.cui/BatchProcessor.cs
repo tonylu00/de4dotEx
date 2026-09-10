@@ -81,6 +81,8 @@ namespace de4dot.cui {
 				ConfigureBindings(files, snapshot);
 				var protectedFiles = files.Where(f => f.Deobfuscator.Type != "un").ToList();
 				var renameJournal = new BatchRenameJournal(files, snapshot);
+				context.SetData(de4dot.code.renamer.ReflectionNames.ContextKey,
+					de4dot.code.renamer.ReflectionNames.Collect(files.Select(f => (ModuleDef)f.ModuleDefMD)));
 				deobfuscate(protectedFiles);
 				var metadataRepaired = new HashSet<ModuleDef>();
 				foreach (var file in files) {
@@ -129,6 +131,7 @@ namespace de4dot.cui {
 				(context.GetData(BatchAssemblyContexts.ContextKey) as BatchAssemblyContexts)?.Dispose();
 				context.ClearData(BatchAssemblyContexts.ContextKey);
 				context.ClearData(BatchAssemblyBindings.ContextKey);
+				context.ClearData(de4dot.code.renamer.ReflectionNames.ContextKey);
 				foreach (var file in files) file.Dispose();
 				if (published) {
 					// Only our new, validated staging tree can be removed.

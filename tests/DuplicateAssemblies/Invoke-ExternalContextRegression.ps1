@@ -33,4 +33,3 @@ $brokenOutput=Join-Path $OutputDirectory 'broken-output'
 & $De4dot --rename-public-api --batch $hostInput --batch-output $brokenOutput --assembly-contexts $manifest --default-strtyp none
 if($LASTEXITCODE -eq 0 -or (Test-Path $brokenOutput)){throw 'External missing-member errors were ignored'}
 Write-Output 'PASS: external dependency context, config probing, preserved consumer and missing-member publication gate'
-
