@@ -22,6 +22,19 @@ floating-point constants preserve their bits. Unknown operands are reported and
 skipped. Constructors, virtual/accessor/PInvoke methods and very small bodies are
 excluded. Ambiguous bodies are reported, never resolved by enumeration order.
 
+Unique local method pairs also provide call targets for subsequent matching
+rounds, allowing callers to match when their callee names changed. Constructed
+generic calls retain their type arguments. Direct recursive self calls compare
+by their self-reference rather than their obfuscated name. Call targets outside
+the module or represented by unresolved member references keep their symbolic
+names and scopes. Ambiguous callees never establish a correspondence.
+
+Rounds are simultaneous, deterministic and limited to eight; the scanner stops
+earlier when no new changed-name pair is found. Reports include `MatchRound` and
+the target metadata tokens of `MatchedCallees` used as evidence. Each round still
+requires a unique complete fingerprint on both sides. This does not remove the
+stable declaring-type/signature requirement or infer equivalence of dependencies.
+
 The existing renamer tokenizer learns vocabulary from reference names and prose.
 Only meaningful reference names are proposed; meaningful target names are kept.
 Short or unknown target names may produce review candidates, not automatic edits.
@@ -82,3 +95,9 @@ source11 map. One repeated `Validate` suggestion still needed a distinct source
 alias in that map. Optimized and initial scans produced identical candidate
 evidence. These are real-project checks of the generic scanner, not ETS-specific
 rules or a claim that every obfuscated name has been recovered.
+
+The call-correspondence follow-up retained all ten ETS candidates, without adding
+new ones for this version pair. Its synthetic regression additionally recovers a
+generic-call wrapper, a second-level caller and a recursive method, and rejects
+changed/ambiguous callees with either declaration order. The unchanged 6.3
+self-comparison still proposes zero names.

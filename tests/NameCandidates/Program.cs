@@ -80,4 +80,5 @@ foreach (string test in new[] { "hash", "signature", "path", "duplicate", "ident
     else Require((string)System.Xml.Linq.XDocument.Load(output).Descendants("Method").Single().Attribute("NewName") == "Service2", "Deterministic collision suffix");
 }
 Console.WriteLine("PASS guarded source-map conversion, collision suffixes, stale input rejection and no overwrite.");
+CallGraphFixture.Run(root);
 Console.WriteLine("PASS physical duplicates, dependency scopes, version changes, ambiguity, readable names, native/missing inputs, provenance, deterministic output and no overwrite.");
