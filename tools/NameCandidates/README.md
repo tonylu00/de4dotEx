@@ -20,7 +20,9 @@ and public-key token while ignoring versions. A changed dependency scope rejects
 a match even if type names are identical. Branch/macro encodings are normalized;
 floating-point constants preserve their bits. Unknown operands are reported and
 skipped. Constructors, virtual/accessor/PInvoke methods and very small bodies are
-excluded. Ambiguous bodies are reported, never resolved by enumeration order.
+excluded, except for explicitly reviewed short methods in established declaring
+type correspondences (described below). Ambiguous bodies are reported, never
+resolved by enumeration order.
 
 Unique local method pairs also provide call targets for subsequent matching
 rounds, allowing callers to match when their callee names changed. Constructed
@@ -37,7 +39,9 @@ stable declaring-type/signature requirement or infer equivalence of dependencies
 
 The existing renamer tokenizer learns vocabulary from reference names and prose.
 Only meaningful reference names are proposed; meaningful target names are kept.
-Short or unknown target names may produce review candidates, not automatic edits.
+Short lowercase names, generated placeholders and names positively assessed as
+obfuscated may produce review candidates, not automatic edits. Unknown descriptive
+names are retained.
 Each candidate includes both physical identities, MVIDs, SHA-256 hashes, tokens,
 full signatures and a fingerprint. Public/protected API candidates are marked.
 Results are deterministic for unchanged inputs. Hashes describe the exact byte
@@ -148,3 +152,10 @@ assessment, a short lowercase name, or a generated `method_`/`smethod_`/`vmethod
 unchanged; an explicit user-authored source map can still select another alias.
 Generated reference placeholders are not proposed as recovered names, even if
 the word `method` itself is recognized by the tokenizer.
+
+The subsequent full-tree scan using the reviewed 6.3 reference map produced 496
+private-method candidates across 25 target modules in 6.4. None suggested a
+generated placeholder as a readable name, and the existing `ToMetricKey` name
+was retained. The current matcher still proposes zero names for the 528-module
+6.3 self-comparison. These results supersede the earlier ten-candidate scan above;
+they measure candidate recovery, not full runtime equivalence.
