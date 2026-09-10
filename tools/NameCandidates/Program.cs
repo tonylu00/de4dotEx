@@ -12,6 +12,11 @@ namespace De4dot.NameCandidates;
 public static class Program {
     public static int Main(string[] args) {
         try {
+            if (args.Length == 4 && args[0] == "--source-map") {
+                SourceMapWriter.Write(args[1], args[2], args[3]);
+                Console.WriteLine("Source map written; runtime names are restored by dnSpy's SDK build task.");
+                return 0;
+            }
             if (args.Length != 3) throw new ArgumentException("Usage: NameCandidates <reference-tree> <target-tree> <new-report.json>");
             var report = Scanner.Scan(args[0], args[1]);
             using var output = new FileStream(args[2], FileMode.CreateNew, FileAccess.Write);
@@ -33,7 +38,7 @@ public sealed class Report {
     public string ReferenceRoot { get; init; }
     public string TargetRoot { get; init; }
     public int Modules { get; set; }
-    public List<Candidate> Candidates { get; } = new();
+    public List<Candidate> Candidates { get; init; } = new();
     public List<Skip> Skips { get; } = new();
 }
 

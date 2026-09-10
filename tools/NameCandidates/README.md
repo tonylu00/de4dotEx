@@ -36,7 +36,25 @@ all candidates in that module.
 Review call sites and intended behavior before accepting a suggestion. Matching
 IL is evidence, not proof of original naming or behavior: dependency implementations,
 custom attributes, resources and reflection may differ. This tool does not rename
-binaries or automatically publish its suggestions as a map.
+binaries. Scanning only writes a candidate report.
+
+After selecting candidates, keep just those entries in a copy of the report and
+optionally edit their `SuggestedName`. Convert it to a dnSpy source-only map:
+
+```powershell
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --source-map D:\analysis\selected.json D:\analysis\target D:\analysis\source-names.xml
+dnSpy.Console.exe --public-sign --source-name-map D:\analysis\source-names.xml -o D:\analysis\source <complete-input-assembly-list>
+```
+
+Conversion rechecks the target root, physical paths, assembly identities, MVIDs,
+hashes, method tokens and full signatures. It rejects links, stale entries,
+duplicate tokens, unsupported methods and invalid identifiers before writing.
+Existing files are never overwritten. Names colliding with module declarations
+receive deterministic suffixes (`Validate2`, `Validate3`, etc.); other candidates'
+suggestions are reserved first. Review the resulting aliases before export.
+The source map preserves runtime method names through dnSpy's SDK build task;
+it is distinct from the binary name map described below. Supply the application's
+configuration and dependency contexts when exporting complex application trees.
 
 For binary changes, export the target inventory using `--name-map-export`, then
 copy reviewed names into the corresponding physical module/token entries and run

@@ -55,4 +55,29 @@ Require(De4dot.NameCandidates.Program.Main(new[] { reference, target, json }) ==
 Require(System.Text.Json.JsonSerializer.Serialize(report) == System.Text.Json.JsonSerializer.Serialize(Scanner.Scan(reference, target)), "Deterministic scan");
 Require(Scanner.Scan(reference, reference).Candidates.Count == 0, "Identical input shortcut");
 Require(hashes.All(p => p.Value == Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(p.Key)))), "Input files unchanged");
+string mapPath = Path.Combine(root, "names.xml");
+Require(De4dot.NameCandidates.Program.Main(new[] { "--source-map", json, target, mapPath }) == 0, "Source map conversion");
+var map = System.Xml.Linq.XDocument.Load(mapPath);
+Require(map.Root.Elements("Module").Count() == 2 && map.Descendants("Method").All(m => (string)m.Attribute("NewName") == "GetValue" && (string)m.Attribute("ExpectedName") == "xqz"), "Physical source map rows");
+Require(De4dot.NameCandidates.Program.Main(new[] { "--source-map", json, target, mapPath }) == 1, "Source map no overwrite");
+foreach (string test in new[] { "hash", "signature", "path", "duplicate", "identifier", "collision" }) {
+    var candidate = report.Candidates[0];
+    candidate = test switch {
+        "hash" => candidate with { TargetHash = "00" },
+        "signature" => candidate with { Target = "wrong signature" },
+        "path" => candidate with { Module = "../escape.dll" },
+        "identifier" => candidate with { SuggestedName = "not.valid" },
+        "collision" => candidate with { SuggestedName = "Service" },
+        _ => candidate
+    };
+    var selected = new Report { TargetRoot = target, Candidates = new() { candidate } };
+    if (test == "duplicate") selected.Candidates.Add(candidate);
+    string reportPath = Path.Combine(root, test + ".json"), output = Path.Combine(root, test + ".xml");
+    File.WriteAllText(reportPath, System.Text.Json.JsonSerializer.Serialize(selected));
+    int result = De4dot.NameCandidates.Program.Main(new[] { "--source-map", reportPath, target, output });
+    Require(result == (test == "collision" ? 0 : 1), "Map guard: " + test);
+    if (test != "collision") Require(!File.Exists(output), "Reject before writing: " + test);
+    else Require((string)System.Xml.Linq.XDocument.Load(output).Descendants("Method").Single().Attribute("NewName") == "Service2", "Deterministic collision suffix");
+}
+Console.WriteLine("PASS guarded source-map conversion, collision suffixes, stale input rejection and no overwrite.");
 Console.WriteLine("PASS physical duplicates, dependency scopes, version changes, ambiguity, readable names, native/missing inputs, provenance, deterministic output and no overwrite.");
