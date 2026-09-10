@@ -34,6 +34,7 @@ namespace de4dot.code.renamer {
 		MemberInfos memberInfos;
 
 		public INameChecker NameChecker => type.Module.ObfuscatedFile.NameChecker;
+		public bool IsValidMethodName(string name) => memberInfos.AnalyzeMethodNames ? MethodNameAnalysis.IsValid(name, NameChecker) : NameChecker.IsValidMethodName(name);
 
 		public TypeInfo(MTypeDef typeDef, MemberInfos memberInfos)
 			: base(typeDef) {
@@ -377,7 +378,7 @@ namespace de4dot.code.renamer {
 			var checker = NameChecker;
 
 			// PInvoke methods' EntryPoint is always valid. It has to, so always rename.
-			bool isValidName = NameChecker.IsValidMethodName(info.oldName);
+			bool isValidName = IsValidMethodName(info.oldName);
 			bool isExternPInvoke = methodDef.MethodDef.ImplMap != null && methodDef.MethodDef.RVA == 0;
 			if (!isValidName || isExternPInvoke) {
 				INameCreator nameCreator = null;

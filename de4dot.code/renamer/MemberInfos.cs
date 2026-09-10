@@ -79,6 +79,7 @@ namespace de4dot.code.renamer {
 	}
 
 	public class MemberInfos {
+		public bool AnalyzeMethodNames { get; set; }
 		Dictionary<MTypeDef, TypeInfo> allTypeInfos = new Dictionary<MTypeDef, TypeInfo>();
 		Dictionary<MPropertyDef, PropertyInfo> allPropertyInfos = new Dictionary<MPropertyDef, PropertyInfo>();
 		Dictionary<MEventDef, EventInfo> allEventInfos = new Dictionary<MEventDef, EventInfo>();

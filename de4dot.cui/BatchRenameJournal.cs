@@ -67,6 +67,7 @@ namespace de4dot.cui {
       if(!removed && name==s.Name && d.FullName==s.FullName && ns==s.Namespace) continue;
       var row=new XElement(s.Kind,new XAttribute("InputToken","0x"+s.Token.ToString("X8")),new XAttribute("Status",removed?"Removed":"Changed"));
       Text(row,"OldName",s.Name); Text(row,"OldSignature",s.FullName);
+      if(s.Kind=="Method") row.SetAttributeValue("NameAssessment",de4dot.code.renamer.MethodNameAnalysis.Analyze(s.Name).ToString());
       if(s.Parameter!=null) row.SetAttributeValue("Sequence",s.Sequence);
       if(!removed) {
        uint token=d.MDToken.Raw;

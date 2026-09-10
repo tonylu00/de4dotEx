@@ -23,5 +23,9 @@ public class Api:abc {
 }
 class Hidden {
  [MethodImpl(MethodImplOptions.NoInlining)] static int a()=>11;
- public static int Run()=>a();
+ [MethodImpl(MethodImplOptions.NoInlining)] static int a(int value)=>value;
+ [MethodImpl(MethodImplOptions.NoInlining)] static int QxVjKpLrZtWn()=>0;
+ [MethodImpl(MethodImplOptions.NoInlining)] static int GetHTTPResponseAsync()=>0;
+ [MethodImpl(MethodImplOptions.NoInlining)] static int add()=>0;
+ public static int Run()=>a()+a(0)+QxVjKpLrZtWn()+GetHTTPResponseAsync()+add();
 }

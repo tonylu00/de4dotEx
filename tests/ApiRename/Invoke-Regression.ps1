@@ -3,6 +3,16 @@ $ErrorActionPreference='Stop'
 if(Test-Path -LiteralPath $OutputDirectory){throw 'Choose a new output folder'}
 $lib=Join-Path $OutputDirectory 'lib'; $caller=Join-Path $OutputDirectory 'caller'; $reader=Join-Path $OutputDirectory 'reader'
 New-Item -ItemType Directory $lib,$caller,$reader | Out-Null
+$analysis=Join-Path $OutputDirectory 'analysis'
+New-Item -ItemType Directory $analysis | Out-Null
+Copy-Item "$PSScriptRoot\NameAnalysis.cs" $analysis
+Copy-Item "$PSScriptRoot\..\..\de4dot.code\renamer\MethodNameAnalysis.cs" $analysis
+Copy-Item "$PSScriptRoot\..\..\de4dot.code\renamer\INameChecker.cs" $analysis
+'<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net48</TargetFramework><OutputType>Exe</OutputType></PropertyGroup></Project>' | Set-Content "$analysis\Analysis.csproj"
+dotnet build "$analysis\Analysis.csproj" -c Release -v quiet
+if($LASTEXITCODE){throw 'Name analysis tests failed to build'}
+& "$analysis\bin\Release\net48\Analysis.exe"
+if($LASTEXITCODE){throw 'Name analysis tests failed'}
 Copy-Item "$PSScriptRoot\Fixture.cs" $lib
 Copy-Item "$PSScriptRoot\Caller.cs" $caller
 Copy-Item "$PSScriptRoot\ReflectionReader.cs" $reader
@@ -24,6 +34,9 @@ if((Get-FileHash "$output\Reader.dll").Hash -ne (Get-FileHash "$reader\bin\Relea
 [xml]$map=Get-Content "$output\de4dot-rename-map.xml"
 $mod=$map.De4dotRenameMap.Module | Where-Object Path -eq 'Fixture.dll'
 if(-not ($mod.Method | Where-Object {$_.OldName -eq 'a' -and $_.NewName -like 'smethod_*'})){throw 'Private obfuscation was not renamed and journaled'}
+if(@($mod.Method | Where-Object {$_.OldName -eq 'a' -and $_.NewName -like 'smethod_*'}).Count -lt 2){throw 'Private short overloads were skipped'}
+if(-not ($mod.Method | Where-Object {$_.OldName -eq 'QxVjKpLrZtWn' -and $_.NewName -like 'smethod_*' -and $_.NameAssessment -eq 'Obfuscated'})){throw 'Long fragmented name was not renamed and assessed'}
+if($mod.Method | Where-Object {$_.OldName -eq 'GetHTTPResponseAsync' -and $_.NewName -ne $_.OldName}){throw 'Readable acronym method changed'}
 if($mod.Method | Where-Object {$_.OldName -match '^(Open|ProcessIdentity|add|b)$' -and $_.NewName -ne $_.OldName}){throw 'API name changed'}
 if($mod.InputSha256 -ne (Get-FileHash "$lib\bin\Release\net48\Fixture.dll").Hash -or $mod.OutputSha256 -ne (Get-FileHash "$output\Fixture.dll").Hash){throw 'Journal hashes mismatch'}
 'PASS verified rename journal and input/output hashes'

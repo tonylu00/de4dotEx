@@ -247,6 +247,7 @@ namespace de4dot.code.renamer {
 			modules.Initialize();
 			RenameResourceKeys();
 			var groups = modules.InitializeVirtualMembers();
+			memberInfos.AnalyzeMethodNames = PreservePublicApi;
 			memberInfos.Initialize(modules);
 			RenameTypeDefs();
 			RenameTypeRefs();
@@ -472,12 +473,12 @@ namespace de4dot.code.renamer {
 			if (!PreservePublicApi) return;
 			var preserve = new HashSet<MMethodDef>();
 			foreach (var type in modules.AllTypes) {
-				var checker = memberInfos.Type(type).NameChecker;
+				var info = memberInfos.Type(type);
 				foreach (var method in type.AllMethods) {
 					var name = memberInfos.Method(method).oldName;
 					// Overload counts and signatures are not evidence of obfuscation. Keep
 					// valid names, including managed P/Invoke aliases and explicit implementations.
-					if (PublicMethod(method.MethodDef) || checker.IsValidMethodName(name) || reflectionNames.Contains(name)) preserve.Add(method);
+					if (PublicMethod(method.MethodDef) || info.IsValidMethodName(name) || reflectionNames.Contains(name)) preserve.Add(method);
 				}
 			}
 			foreach (var group in groups.GetAllGroups()) {
@@ -1848,7 +1849,7 @@ namespace de4dot.code.renamer {
 			foreach (var method in group.Methods) {
 				var typeInfo = memberInfos.Type(method.Owner);
 				var methodInfo = memberInfos.Method(method);
-				if (!typeInfo.NameChecker.IsValidMethodName(methodInfo.oldName))
+				if (!typeInfo.IsValidMethodName(methodInfo.oldName))
 					return true;
 			}
 			return false;

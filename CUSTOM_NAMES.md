@@ -129,3 +129,19 @@ when the receiver is not statically known: it can leave extra short names intact
 Dynamically constructed/encrypted names and callers outside the supplied tree
 cannot be inferred. Include runtime plug-ins and use explicit mappings only after
 reviewing their reflection contracts.
+# Method-name analysis
+
+Default compatibility renaming also examines method names lexically. The tokenizer
+recognizes camel/Pascal word boundaries, acronym runs, underscores and numbers.
+Common verbs, words and acronyms protect names such as `GetHTTPResponseAsync` and
+`LoadX509Certificate`. Strongly fragmented long names and long hexadecimal-looking
+identifiers are candidates for placeholder renaming. Unknown domain words and
+non-Latin names fall back to the protector's existing rules. Short names such as
+`a` and `ab` also use those rules; private short overloads are not skipped.
+
+This is a conservative readability heuristic, not semantic recovery. Overload
+counts are never evidence of obfuscation. Public/protected APIs, reflected names
+and their virtual/interface families remain protected independently of lexical
+classification. `--rename-public-api` retains the legacy checker behavior.
+Changed method rows in `de4dot-rename-map.xml` include `NameAssessment`; this is
+lexical evidence, not the complete reason for the final rename decision.
