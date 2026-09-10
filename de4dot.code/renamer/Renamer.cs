@@ -248,6 +248,16 @@ namespace de4dot.code.renamer {
 			RenameResourceKeys();
 			var groups = modules.InitializeVirtualMembers();
 			memberInfos.AnalyzeMethodNames = PreservePublicApi;
+			if (PreservePublicApi) {
+				var types = modules.TheModules.SelectMany(m => m.ModuleDefMD.GetTypes()).ToArray();
+				var names = types.Select(t => (string)t.Name)
+					.Concat(types.SelectMany(t => t.Methods).Select(m => (string)m.Name))
+					.Concat(types.SelectMany(t => t.Properties).Select(p => (string)p.Name))
+					.Concat(types.SelectMany(t => t.Fields).Select(f => (string)f.Name));
+				var strings = types.SelectMany(t => t.Methods).Where(m => m.HasBody).SelectMany(m => m.Body.Instructions)
+					.Where(i => i.OpCode == dnlib.DotNet.Emit.OpCodes.Ldstr).Select(i => i.Operand as string);
+				memberInfos.MethodVocabulary = MethodNameAnalysis.Learn(names, strings);
+			}
 			memberInfos.Initialize(modules);
 			RenameTypeDefs();
 			RenameTypeRefs();

@@ -37,6 +37,6 @@ if(-not ($mod.Method | Where-Object {$_.OldName -eq 'a' -and $_.NewName -like 's
 if(@($mod.Method | Where-Object {$_.OldName -eq 'a' -and $_.NewName -like 'smethod_*'}).Count -lt 2){throw 'Private short overloads were skipped'}
 if(-not ($mod.Method | Where-Object {$_.OldName -eq 'QxVjKpLrZtWn' -and $_.NewName -like 'smethod_*' -and $_.NameAssessment -eq 'Obfuscated'})){throw 'Long fragmented name was not renamed and assessed'}
 if($mod.Method | Where-Object {$_.OldName -eq 'GetHTTPResponseAsync' -and $_.NewName -ne $_.OldName}){throw 'Readable acronym method changed'}
-if($mod.Method | Where-Object {$_.OldName -match '^(Open|ProcessIdentity|add|b)$' -and $_.NewName -ne $_.OldName}){throw 'API name changed'}
+if($mod.Method | Where-Object {$_.OldName -match '^(Open|ETS|IsDeviceTesterLicensed|ProcessIdentity|add|b)$' -and $_.NewName -ne $_.OldName}){throw 'API name changed'}
 if($mod.InputSha256 -ne (Get-FileHash "$lib\bin\Release\net48\Fixture.dll").Hash -or $mod.OutputSha256 -ne (Get-FileHash "$output\Fixture.dll").Hash){throw 'Journal hashes mismatch'}
 'PASS verified rename journal and input/output hashes'

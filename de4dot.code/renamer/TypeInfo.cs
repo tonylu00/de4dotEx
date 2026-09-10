@@ -34,7 +34,7 @@ namespace de4dot.code.renamer {
 		MemberInfos memberInfos;
 
 		public INameChecker NameChecker => type.Module.ObfuscatedFile.NameChecker;
-		public bool IsValidMethodName(string name) => memberInfos.AnalyzeMethodNames ? MethodNameAnalysis.IsValid(name, NameChecker) : NameChecker.IsValidMethodName(name);
+		public bool IsValidMethodName(string name) => memberInfos.AnalyzeMethodNames ? MethodNameAnalysis.IsValid(name, NameChecker, memberInfos.MethodVocabulary) : NameChecker.IsValidMethodName(name);
 
 		public TypeInfo(MTypeDef typeDef, MemberInfos memberInfos)
 			: base(typeDef) {

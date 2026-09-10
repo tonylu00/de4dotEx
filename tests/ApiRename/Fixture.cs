@@ -12,6 +12,8 @@ public class Api:abc {
  public int Open(int value)=>value+2;
  public T Open<T>(T value)=>value;
  public static int add(int x,int y)=>x+y;
+ public bool IsDeviceTesterLicensed()=>true;
+ public bool IsDeviceTesterLicensed(int device)=>device>=0;
  public int Count {get;set;}
  public event Action Changed;
  public void Raise()=>Changed?.Invoke();
@@ -27,5 +29,9 @@ class Hidden {
  [MethodImpl(MethodImplOptions.NoInlining)] static int QxVjKpLrZtWn()=>0;
  [MethodImpl(MethodImplOptions.NoInlining)] static int GetHTTPResponseAsync()=>0;
  [MethodImpl(MethodImplOptions.NoInlining)] static int add()=>0;
- public static int Run()=>a()+a(0)+QxVjKpLrZtWn()+GetHTTPResponseAsync()+add();
+ [MethodImpl(MethodImplOptions.NoInlining)] static int GetETS()=>0;
+ [MethodImpl(MethodImplOptions.NoInlining)] static int SaveETS()=>0;
+ [MethodImpl(MethodImplOptions.NoInlining)] static int ETS()=>0;
+ [MethodImpl(MethodImplOptions.NoInlining)] static int ETS(int value)=>value;
+ public static int Run()=>GetETS()+SaveETS()+ETS()+ETS(0)+a()+a(0)+QxVjKpLrZtWn()+GetHTTPResponseAsync()+add();
 }

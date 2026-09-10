@@ -16,7 +16,26 @@ namespace de4dot.code.renamer {
 			"connect disconnect send receive initialize dispose release acquire lock unlock register unregister subscribe unsubscribe " +
 			"notify changed change default current next previous first last all any min max sum abs log sin cos tan copy clone to from " +
 			"is has can should with without of for by as at in out not null empty true false error exception success failure " +
-			"http https tcp udp ip uri url xml json sql sdk api ui io id guid uuid utf ascii unicode sha md crc rsa aes x509").Split(' '), StringComparer.OrdinalIgnoreCase);
+			"device tester licensed license test http https tcp udp ip uri url xml json sql sdk api ui io id guid uuid utf ascii unicode sha md crc rsa aes x509").Split(' '), StringComparer.OrdinalIgnoreCase);
+		// One immutable-in-use vocabulary per batch, never process-global learning.
+		// Require independent name evidence, or a name plus a plain-text literal.
+		public static HashSet<string> Learn(IEnumerable<string> names, IEnumerable<string> strings) {
+			var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+			foreach (var name in names.Where(n => n != null && n.Length <= 256).Distinct(StringComparer.Ordinal)) {
+				if (Analyze(name) != Assessment.Meaningful) continue;
+				foreach (var token in Tokenize(name).Where(IsWord).Distinct(StringComparer.OrdinalIgnoreCase)) {
+					counts.TryGetValue(token, out int count); counts[token] = count + 1;
+				}
+			}
+			var prose = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var value in strings) {
+				if (value == null || value.Length > 4096 || !value.Contains(" ") || value.Any(char.IsControl)) continue;
+				foreach (var token in value.Split(new[] {' ', '.', ',', ':', ';', '!', '?', '(', ')', '\r', '\n', '\t'}, StringSplitOptions.RemoveEmptyEntries).Where(IsWord))
+					if (counts.ContainsKey(token)) prose.Add(token);
+			}
+			return new HashSet<string>(counts.Where(p => p.Value >= 2 || prose.Contains(p.Key)).Select(p => p.Key), StringComparer.OrdinalIgnoreCase);
+		}
+		static bool IsWord(string token) => token.Length >= 3 && token.Length <= 32 && token.All(c => c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z');
 		public static string[] Tokenize(string name) {
 			if (string.IsNullOrEmpty(name)) return Array.Empty<string>();
 			var tokens = new List<string>();
@@ -32,18 +51,18 @@ namespace de4dot.code.renamer {
 			}
 			return tokens.ToArray();
 		}
-		public static Assessment Analyze(string name) {
+		public static Assessment Analyze(string name, ISet<string> vocabulary = null) {
 			if (string.IsNullOrEmpty(name) || char.IsDigit(name[0]) || name.Any(c => c > 127 || !char.IsLetterOrDigit(c) && c != '_' && c != '.')) return Assessment.Unknown;
 			// Explicit interface qualifications describe the owner, not the method.
 			int qualifier = name.LastIndexOf('.');
 			if (qualifier >= 0) name = name.Substring(qualifier + 1);
 			var tokens = Tokenize(name);
 			var letters = tokens.Where(t => !t.All(char.IsDigit)).ToArray();
-			int recognized = letters.Where(words.Contains).Sum(t => t.Length);
+			int recognized = letters.Where(t => words.Contains(t) || vocabulary != null && vocabulary.Contains(t)).Sum(t => t.Length);
 			int total = letters.Sum(t => t.Length);
 			// Preserve common short verbs, while "a"/"ab" overloads still use the
 			// protector's short-name rules. Overload counts never enter the decision.
-			if (total != 0 && letters.Any(words.Contains) && recognized * 2 >= total) return Assessment.Meaningful;
+			if (total != 0 && letters.Any(t => words.Contains(t) || vocabulary != null && vocabulary.Contains(t)) && recognized * 2 >= total) return Assessment.Meaningful;
 			if (name.Length < 12 || letters.Length == 0) return Assessment.Unknown;
 			if (recognized == 0 && name.Length >= 24 && name.All(c => "0123456789abcdefABCDEF".IndexOf(c) >= 0) && name.Any(char.IsDigit))
 				return Assessment.Obfuscated;
@@ -53,8 +72,8 @@ namespace de4dot.code.renamer {
 				return Assessment.Obfuscated;
 			return Assessment.Unknown;
 		}
-		public static bool IsValid(string name, INameChecker fallback) {
-			switch (Analyze(name)) {
+		public static bool IsValid(string name, INameChecker fallback, ISet<string> vocabulary = null) {
+			switch (Analyze(name, vocabulary)) {
 			case Assessment.Meaningful: return true;
 			case Assessment.Obfuscated: return false;
 			default: return fallback.IsValidMethodName(name);
