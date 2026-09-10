@@ -45,4 +45,13 @@ if($LASTEXITCODE){throw 'Control-flow-only batch failed'}
 if($journal.De4dotRenameMap.RequestedStringDecryption -ne 'None' -or $journal.De4dotRenameMap.ControlFlowDeobfuscation -ne 'true'){throw 'Control-flow-only mode missing from batch journal'}
 & (Join-Path $controlOutput 'Fixture.exe')
 if($LASTEXITCODE){throw 'Control-flow-only runtime changed'}
-'PASS explicit static and control-flow-only string modes recorded'
+$overrideOutput=Join-Path $OutputDirectory 'control-flow-with-static-strings'
+& $De4dot --only-cflow-deob --default-strtyp static --batch (Split-Path $original) --batch-output $overrideOutput
+if($LASTEXITCODE){throw 'Explicit static override batch failed'}
+[xml]$journal=Get-Content (Join-Path $overrideOutput 'de4dot-rename-map.xml') -Raw
+if($journal.De4dotRenameMap.RequestedStringDecryption -ne 'Static' -or $journal.De4dotRenameMap.RenameSymbols -ne 'false'){throw 'Explicit static override was lost'}
+& (Join-Path $overrideOutput 'Fixture.exe')
+if($LASTEXITCODE){throw 'Static override runtime changed'}
+dotnet run --project (Join-Path $verifyDir 'Verify.csproj') -c Release -- (Join-Path $overrideOutput 'Fixture.exe')
+if($LASTEXITCODE){throw 'Static override left encrypted literals'}
+'PASS explicit static, control-flow-only and static override behavior and recorded modes'
