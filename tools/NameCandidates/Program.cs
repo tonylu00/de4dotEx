@@ -78,7 +78,12 @@ public static class Scanner {
             Regex.IsMatch(name, @"\A(?:[a-z]{1,3}|[gsv]?method_[0-9]+)\z");
     }
 
-    static string Fingerprint(MethodDef m) => ContextFingerprint(m, null);
+    // Shared with full-source regression audits. This compares normalized IL,
+    // not semantic equivalence: assembly versions and unused locals are omitted,
+    // while dependency identity, signatures, flags and exception regions remain.
+    // Macro/branch normalization mutates the supplied in-memory body; callers
+    // auditing a binary must load a disposable module and never write it back.
+    public static string Fingerprint(MethodDef m) => ContextFingerprint(m, null);
     static MethodDef LocalDefinition(IMethod method) {
         if (method is MethodDef definition) return definition;
         if (method is MethodSpec specification) return LocalDefinition(specification.Method);
