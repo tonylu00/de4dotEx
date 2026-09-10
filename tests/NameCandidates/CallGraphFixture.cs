@@ -10,7 +10,7 @@ static class CallGraphFixture {
             Build(reference, false, false); Build(target, true, reversed);
             var report = Scanner.Scan(reference, target);
             var names = report.Candidates.ToDictionary(c => c.SuggestedName);
-            if (names.Count != 6 || names["ReadGenericValue"].MatchRound != 1 || names["GetGenericResult"].MatchRound != 2 ||
+            if (names.Count != 7 || !names.ContainsKey("ReadCachedValue") || names.ContainsKey("method_9") || names["ReadGenericValue"].MatchRound != 1 || names["GetGenericResult"].MatchRound != 2 ||
                 names["GetGenericResult"].MatchedCallees.Length != 1 || names["ReadValue"].MatchRound != 1 || names["GetResult"].MatchRound != 2 ||
                 names["ParseResult"].MatchRound != 3 || names["CountItems"].MatchRound != 1 ||
                 names["GetResult"].MatchedCallees.Length != 1 || names["ParseResult"].MatchedCallees.Length != 1)
@@ -40,6 +40,8 @@ static class CallGraphFixture {
                 Instruction.CreateLdcI4(2), Instruction.Create(OpCodes.Mul), Instruction.Create(OpCodes.Ret) }) method.Body.Instructions.Add(i);
         }
         var leaf = Method("ReadValue", "qzx", true); Leaf(leaf, 5);
+        var placeholderTarget = Method("ReadCachedValue", "method_8"); Leaf(placeholderTarget, 41);
+        var placeholderReference = Method("method_9", "vmethod_10"); Leaf(placeholderReference, 43);
         var first = Method("GetResult", "zqx"); Caller(first, new MethodSpecUser(leaf, new GenericInstMethodSig(module.CorLibTypes.String)), 7);
         var container = new TypeDefUser("Sample", "Container`1", module.CorLibTypes.Object.TypeDefOrRef) { Attributes = TypeAttributes.Public };
         container.GenericParameters.Add(new GenericParamUser(0, GenericParamAttributes.NonVariant, "T"));

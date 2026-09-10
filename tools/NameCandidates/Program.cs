@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 using de4dot.code.renamer;
@@ -36,6 +37,7 @@ public sealed record Candidate(string Module, string ReferenceIdentity, string T
     string Fingerprint, bool ExternallyVisible) {
     public int MatchRound { get; init; } = 1;
     public string[] MatchedCallees { get; init; } = Array.Empty<string>();
+    public string[] DeclaringTypeEvidence { get; init; } = Array.Empty<string>();
 }
 public sealed record Skip(string Module, string Reason, string Token = null);
 public sealed class Report {
@@ -65,8 +67,16 @@ public static class Scanner {
     static string Signature(MethodSig s) => s == null ? "" : Json(new object[] {
         s.CallingConvention.ToString(), s.GenParamCount, Type(s.RetType), s.Params.Select(Type).ToArray(),
         s.ParamsAfterSentinel?.Select(Type).ToArray() ?? Array.Empty<string>() });
-    static bool Eligible(MethodDef m) => m.HasBody && !m.IsConstructor && !m.IsVirtual &&
-        !m.IsSpecialName && !m.IsPinvokeImpl && !m.HasOverrides && m.Body.Instructions.Count >= 6;
+    static bool Eligible(MethodDef m) => Matchable(m) && m.Body.Instructions.Count >= 6;
+    static bool Matchable(MethodDef m) => m.HasBody && !m.IsConstructor && !m.IsVirtual &&
+        !m.IsSpecialName && !m.IsPinvokeImpl && !m.HasOverrides && m.Body.Instructions.Count >= 3;
+    static bool Placeholder(string name) => Regex.IsMatch(name, @"\A[gsv]?method_[0-9]+\z");
+    static bool NeedsReadableName(string name, ISet<string> vocabulary) {
+        if (Placeholder(name)) return true;
+        var assessment = MethodNameAnalysis.Analyze(name, vocabulary);
+        return assessment == MethodNameAnalysis.Assessment.Obfuscated || assessment == MethodNameAnalysis.Assessment.Unknown &&
+            Regex.IsMatch(name, @"\A(?:[a-z]{1,3}|[gsv]?method_[0-9]+)\z");
+    }
 
     static string Fingerprint(MethodDef m) => ContextFingerprint(m, null);
     static MethodDef LocalDefinition(IMethod method) {
@@ -84,11 +94,19 @@ public static class Scanner {
         var matches = type.Methods.Where(m => m.Name == member.Name && comparer.Equals(m.MethodSig, member.MethodSig)).Take(2).ToArray();
         return matches.Length == 1 ? matches[0] : null;
     }
-    static string ContextFingerprint(MethodDef m, IReadOnlyDictionary<MethodDef, string> anchors) {
+    static string ContextFingerprint(MethodDef m, IReadOnlyDictionary<MethodDef, string> anchors,
+        IReadOnlyDictionary<TypeDef, string> typeAnchors = null, bool omitOwner = false) {
         m.Body.SimplifyMacros(m.Parameters);
         m.Body.SimplifyBranches();
         var il = m.Body.Instructions;
+        // Obfuscation cleanup can leave unreferenced local slots. They do not
+        // participate in the IL computation; retain every referenced slot/type.
+        var referencedLocals = new HashSet<Local>(il.Select(i => i.Operand).OfType<Local>());
+        var locals = m.Body.Variables.Where(referencedLocals.Contains).ToArray();
+        var localPositions = locals.Select((local, index) => (local, index)).ToDictionary(p => p.local, p => p.index);
         var positions = il.Select((instruction, index) => (instruction, index)).ToDictionary(p => p.instruction, p => p.index);
+        string OwnerScope(ITypeDefOrRef type) => type is TypeDef definition && typeAnchors != null && typeAnchors.TryGetValue(definition, out var anchor) ?
+            Json(new[] { "matched-type", anchor, Assembly(type.DefinitionAssembly) }) : Scope(type);
         string MethodIdentity(IMethod method) {
             var definition = LocalDefinition(method);
             if (anchors != null && definition == m) return Json(new[] { "self" });
@@ -99,9 +117,9 @@ public static class Scanner {
             null => "",
             Instruction i => Json(new object[] { "branch", positions[i] }),
             IList<Instruction> list => Json(new object[] { "switch", list.Select(i => positions[i]).ToArray() }),
-            Local l => "local:" + l.Index,
+            Local l => "local:" + localPositions[l],
             Parameter p => "argument:" + p.Index,
-            IMethod r => Json(new object[] { "method", MethodIdentity(r), Scope(r.DeclaringType), Signature(r.MethodSig),
+            IMethod r => Json(new object[] { "method", MethodIdentity(r), OwnerScope(r.DeclaringType), Signature(r.MethodSig),
                 r is MethodSpec ms ? ms.GenericInstMethodSig.GenericArguments.Select(Type).ToArray() : Array.Empty<string>() }),
             IField f => Json(new[] { "field", f.Name.String, Scope(f.DeclaringType), Type(f.FieldSig.Type) }),
             ITypeDefOrRef t => Json(new[] { "type", Type(t.ToTypeSig()) }),
@@ -112,9 +130,9 @@ public static class Scanner {
             _ => throw new NotSupportedException("Unsupported IL operand " + operand.GetType().Name)
         };
         var body = Json(new object[] {
-            Scope(m.DeclaringType), Signature(m.MethodSig), (int)m.Attributes, (int)m.ImplAttributes,
+            omitOwner ? Assembly(m.Module.Assembly) : OwnerScope(m.DeclaringType), Signature(m.MethodSig), (int)m.Attributes, (int)m.ImplAttributes,
             m.GenericParameters.Select(p => new object[] { (int)p.Flags, p.GenericParamConstraints.Select(c => Scope(c.Constraint)).ToArray() }).ToArray(),
-            m.Body.InitLocals, m.Body.Variables.Select(v => Type(v.Type)).ToArray(),
+            locals.Length != 0 && m.Body.InitLocals, locals.Select(v => Type(v.Type)).ToArray(),
             il.Select(i => new[] { i.OpCode.Code.ToString(), Operand(i.Operand) }).ToArray(),
             m.Body.ExceptionHandlers.Select(h => new[] { h.HandlerType.ToString(), Operand(h.TryStart), Operand(h.TryEnd),
                 Operand(h.HandlerStart), Operand(h.HandlerEnd), Operand(h.FilterStart), Operand(h.CatchType) }).ToArray()
@@ -163,9 +181,43 @@ public static class Scanner {
                 }
                 report.Modules++;
                 if (aBytes.AsSpan().SequenceEqual(bBytes) && !referenceNames.ContainsKey(relative)) continue;
-                var before = a.GetTypes().SelectMany(t => t.Methods).Where(Eligible).ToArray();
-                var after = b.GetTypes().SelectMany(t => t.Methods).Where(Eligible).ToArray();
                 referenceNames.TryGetValue(relative, out var moduleNames);
+                var typeAnchors = new Dictionary<TypeDef, string>();
+                var typeEvidence = new Dictionary<TypeDef, string[]>();
+                if (moduleNames != null) {
+                    var referenceSeeds = a.GetTypes().SelectMany(t => t.Methods).Where(m => Matchable(m) && m.IsStatic && moduleNames.Names.ContainsKey(m.MDToken.Raw));
+                    var targetSeeds = b.GetTypes().SelectMany(t => t.Methods).Where(m => Matchable(m) && m.IsStatic);
+                    string SeedKey(MethodDef method) => ContextFingerprint(method, null, null, true);
+                    ILookup<string, MethodDef> SeedIndex(IEnumerable<MethodDef> methods) {
+                        var entries = new List<(string Key, MethodDef Method)>();
+                        foreach (var method in methods) {
+                            try { entries.Add((SeedKey(method), method)); }
+                            catch (NotSupportedException) { /* Unsupported bodies cannot establish a type match. */ }
+                        }
+                        return entries.ToLookup(p => p.Key, p => p.Method);
+                    }
+                    var oldSeeds = SeedIndex(referenceSeeds);
+                    var newSeeds = SeedIndex(targetSeeds);
+                    var seeds = oldSeeds.Where(g => g.Count() == 1 && newSeeds[g.Key].Count() == 1)
+                        .Select(g => (Reference: g.Single(), Target: newSeeds[g.Key].Single())).ToArray();
+                    foreach (var group in seeds.GroupBy(p => (p.Reference.DeclaringType, p.Target.DeclaringType))) {
+                        var referenceType = group.Key.Item1; var targetType = group.Key.Item2;
+                        if (group.Count() < 2 || referenceType.FullName == targetType.FullName ||
+                            referenceType.IsValueType != targetType.IsValueType || referenceType.IsInterface != targetType.IsInterface ||
+                            referenceType.GenericParameters.Count != targetType.GenericParameters.Count || Scope(referenceType.BaseType) != Scope(targetType.BaseType) ||
+                            Json(referenceType.Interfaces.Select(i => Scope(i.Interface)).OrderBy(s => s, StringComparer.Ordinal)) != Json(targetType.Interfaces.Select(i => Scope(i.Interface)).OrderBy(s => s, StringComparer.Ordinal)) ||
+                            Json(referenceType.GenericParameters.Select(p => new object[] { (int)p.Flags, p.GenericParamConstraints.Select(c => Scope(c.Constraint)).OrderBy(s => s, StringComparer.Ordinal).ToArray() })) !=
+                                Json(targetType.GenericParameters.Select(p => new object[] { (int)p.Flags, p.GenericParamConstraints.Select(c => Scope(c.Constraint)).OrderBy(s => s, StringComparer.Ordinal).ToArray() })) ||
+                            seeds.Any(p => p.Reference.DeclaringType == referenceType && p.Target.DeclaringType != targetType ||
+                                p.Target.DeclaringType == targetType && p.Reference.DeclaringType != referenceType)) continue;
+                        var evidence = group.Select(p => p.Reference.MDToken + ":" + p.Target.MDToken).OrderBy(s => s, StringComparer.Ordinal).ToArray();
+                        string key = referenceType.MDToken + ":" + targetType.MDToken;
+                        typeAnchors.Add(referenceType, key); typeAnchors.Add(targetType, key);
+                        typeEvidence.Add(targetType, evidence);
+                    }
+                }
+                var before = a.GetTypes().SelectMany(t => t.Methods).Where(m => Eligible(m) || Matchable(m) && moduleNames != null && moduleNames.Names.ContainsKey(m.MDToken.Raw)).ToArray();
+                var after = b.GetTypes().SelectMany(t => t.Methods).Where(m => Eligible(m) || Matchable(m) && typeAnchors.ContainsKey(m.DeclaringType)).ToArray();
                 string ReferenceName(MethodDef method) => moduleNames != null && moduleNames.Names.TryGetValue(method.MDToken.Raw, out var alias) ? alias : method.Name.String;
                 var vocabulary = MethodNameAnalysis.Learn(before.Select(ReferenceName),
                     before.SelectMany(m => m.Body.Instructions).Where(i => i.OpCode == OpCodes.Ldstr).Select(i => (string)i.Operand));
@@ -176,7 +228,7 @@ public static class Scanner {
                 ILookup<string, MethodDef> Index(IEnumerable<MethodDef> methods) {
                     var entries = new List<(string Key, MethodDef Method)>();
                     foreach (var method in methods) {
-                        try { entries.Add((ContextFingerprint(method, anchors), method)); }
+                        try { entries.Add((ContextFingerprint(method, anchors, typeAnchors), method)); }
                         catch (NotSupportedException ex) {
                             if (skipped.Add(ex.Message + method.MDToken)) report.Skips.Add(new(relative, ex.Message, method.MDToken.ToString()));
                         }
@@ -218,11 +270,13 @@ public static class Scanner {
                 foreach (var pair in pairs) {
                     var method = pair.Target; var reference = pair.Reference;
                     string suggestedName = ReferenceName(reference);
-                    if (method.Name == suggestedName || MethodNameAnalysis.Analyze(suggestedName, vocabulary) != MethodNameAnalysis.Assessment.Meaningful ||
-                        MethodNameAnalysis.Analyze(method.Name.String, vocabulary) == MethodNameAnalysis.Assessment.Meaningful) continue;
+                    bool reviewedName = moduleNames != null && moduleNames.Names.ContainsKey(reference.MDToken.Raw);
+                    if (method.Name == suggestedName || !reviewedName && (Placeholder(suggestedName) || MethodNameAnalysis.Analyze(suggestedName, vocabulary) != MethodNameAnalysis.Assessment.Meaningful) ||
+                        !NeedsReadableName(method.Name.String, vocabulary)) continue;
                     report.Candidates.Add(new(relative, a.Assembly.FullName, b.Assembly.FullName, a.Mvid.ToString(), b.Mvid.ToString(), aHash, bHash,
                         reference.MDToken.ToString(), method.MDToken.ToString(), reference.FullName, method.FullName, suggestedName, pair.Key,
-                        Visible(method.DeclaringType) && (method.IsPublic || method.IsFamily || method.IsFamilyOrAssembly)) { MatchRound = pair.Round, MatchedCallees = pair.Callees });
+                        Visible(method.DeclaringType) && (method.IsPublic || method.IsFamily || method.IsFamilyOrAssembly)) { MatchRound = pair.Round, MatchedCallees = pair.Callees,
+                            DeclaringTypeEvidence = typeEvidence.TryGetValue(method.DeclaringType, out var evidence) ? evidence : Array.Empty<string>() });
                 }
             }
             finally { b?.Dispose(); a?.Dispose(); }

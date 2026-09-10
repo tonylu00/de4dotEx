@@ -81,6 +81,7 @@ foreach (string test in new[] { "hash", "signature", "path", "duplicate", "ident
 }
 Console.WriteLine("PASS guarded source-map conversion, collision suffixes, stale input rejection and no overwrite.");
 CallGraphFixture.Run(root);
+TypeCorrespondenceFixture.Run(root);
 var seed = report.Candidates.First(c => c.Module.Replace('\\', '/') == "host/Library.dll");
 string referenceMapPath = Path.Combine(root, "reference-names.xml");
 var referenceMap = new System.Xml.Linq.XDocument(new System.Xml.Linq.XElement("SourceNameMap",

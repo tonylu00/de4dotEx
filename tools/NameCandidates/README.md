@@ -123,3 +123,28 @@ metadata and IL. Type/parameter aliases do not establish type correspondence.
 Meaningful existing target names remain protected. Reports record the reference
 map path and hash, and no input binaries are changed. This allows reviewed names
 to inform later versions without renaming the reference assembly's SDK surface.
+
+Reviewed static methods can also establish a declaring-type correspondence when
+at least two distinct exact-body fingerprints are individually unique in both
+physical modules and point to the same type pair. Conflicting pairs, differing
+base/interface/generic contracts and unsupported bodies do not qualify. This
+allows explicitly reviewed short methods to contribute evidence without broadly
+renaming every short overload. Reports list the supporting token pairs in
+`DeclaringTypeEvidence`; callers still require matching signatures, operands and
+control flow. Existing meaningful target names are preserved even when the
+reviewed reference uses another name. A reviewed source identifier need not be
+present in the tokenizer's general vocabulary.
+
+Fingerprints omit local-variable slots that no instruction references after
+macro expansion, and number the remaining slots consistently. Referenced local
+types and initialization behavior remain part of the comparison. This handles
+unused locals left behind by control-flow restoration without accepting changes
+to the types of locals that the method actually uses.
+
+An unknown word is not evidence that a descriptive target name is obfuscated.
+Automatic review candidates therefore require either a positive obfuscation
+assessment, a short lowercase name, or a generated `method_`/`smethod_`/`vmethod_`/
+`gmethod_` placeholder. Unknown descriptive names such as `ToMetricKey` remain
+unchanged; an explicit user-authored source map can still select another alias.
+Generated reference placeholders are not proposed as recovered names, even if
+the word `method` itself is recognized by the tokenizer.
