@@ -11,7 +11,10 @@ namespace De4dot.NameCandidates;
 // Portable preflight and transactional map editing; never executes assemblies.
 public static class ReviewMapUpdate {
     public sealed record Diagnostic(string Module, string Token, string Message);
-    public sealed record Change(string Module, string Token, string Before, string Requested, string Applied);
+    public sealed record Change(string Module, string Token, string Before, string Requested, string Applied) {
+        public string Kind { get; init; } = "Method";
+        public int? ParameterSequence { get; init; }
+    }
     public sealed class Result {
         public bool Success { get; set; }
         public string BaseMapSha256 { get; set; }
@@ -86,6 +89,7 @@ public static class ReviewMapUpdate {
                 } catch (Exception e) { result.Errors.Add(new(relative, null, e.Message)); }
             }
             var proposed = new Dictionary<XElement, string>();
+            var parameterProposals = new Dictionary<XElement, string>();
             if (reviewPath != null) {
                 result.ReviewSha256 = Hash(reviewPath);
                 MethodReview.Inventory inventory;
@@ -106,31 +110,55 @@ public static class ReviewMapUpdate {
                         }
                     }
                 } else inventory = JsonSerializer.Deserialize<MethodReview.Inventory>(File.ReadAllText(reviewPath));
-                if (inventory?.Kind != "MethodReview" || inventory.Format != 1 || !InputPaths.Comparer.Equals(directory, Path.TrimEndingDirectorySeparator(Path.GetFullPath(inventory.TargetRoot)))) throw new InvalidDataException("Review format/input root mismatch.");
+                if (inventory == null || inventory.Kind != "MethodReview" && inventory.Kind != "SymbolReview" || inventory.Format != 1 || !InputPaths.Comparer.Equals(directory, Path.TrimEndingDirectorySeparator(Path.GetFullPath(inventory.TargetRoot)))) throw new InvalidDataException("Review format/input root mismatch.");
                 var seen = new HashSet<string>(InputPaths.Comparer);
-                foreach (var edit in inventory.Methods.Where(m => !string.IsNullOrWhiteSpace(m.NewName))) {
+                var edits = inventory.Methods.Select(e => (Entry: e, Kind: "Method")).Concat(inventory.Types.Select(e => (Entry: e, Kind: "Type")));
+                foreach (var item in edits.Where(e => !string.IsNullOrWhiteSpace(e.Entry.NewName) || e.Entry.ParameterNames.Any(p => !string.IsNullOrWhiteSpace(p.NewName)))) {
+                    var edit = item.Entry;
                     try {
                         var m = Load(edit.Module);
                         string path = Resolve(directory, edit.Module);
                         uint token = Token(edit.Token);
                         if (!seen.Add(path + "|" + token.ToString("X8"))) throw new InvalidDataException("Duplicate review token.");
                         if (!string.Equals(moduleHashes[m], edit.Sha256, StringComparison.OrdinalIgnoreCase) || !Guid.TryParse(edit.Mvid, out var id) || id != m.Mvid || edit.Identity != m.Assembly?.FullName) throw new InvalidDataException("Stale review module identity/hash.");
-                        if (m.ResolveToken(token) is not MethodDef method || method.FullName != edit.Signature || method.Name != edit.OriginalName) throw new InvalidDataException("Review token/name/signature mismatch.");
-                        string blocker = MethodReview.Blocker(method);
-                        if (blocker != null) throw new InvalidDataException(blocker);
-                        if (!Identifier(edit.NewName)) throw new InvalidDataException("Invalid source identifier.");
+                        if (m.ResolveToken(token) is not IMemberDef member || member.FullName != edit.Signature || member.Name != edit.OriginalName) throw new InvalidDataException("Review token/name/signature mismatch.");
+                        var method = member as MethodDef;
+                        if (item.Kind == "Type") {
+                            if (member is not TypeDef t || t.IsGlobalModuleType || t.HasGenericParameters || edit.ParameterNames.Any(p => !string.IsNullOrWhiteSpace(p.NewName))) throw new InvalidDataException("Unsupported type alias.");
+                        } else {
+                            if (method == null) throw new InvalidDataException("Expected a method token.");
+                            string blocker = MethodReview.Blocker(method);
+                            if (blocker != null) throw new InvalidDataException(blocker);
+                        }
+                        bool rename = !string.IsNullOrWhiteSpace(edit.NewName);
+                        if (rename && !Identifier(edit.NewName)) throw new InvalidDataException("Invalid source identifier.");
                         if (!moduleRows.TryGetValue(path, out var moduleRow)) {
                             moduleRow = new XElement("Module", new XAttribute("Path", InputPaths.Relative(directory, path)), new XAttribute("Mvid", m.Mvid), new XAttribute("Sha256", edit.Sha256));
                             moduleRows.Add(path, moduleRow); root.Add(moduleRow);
                         }
-                        var matches = moduleRow.Elements("Method").Where(r => Token((string)r.Attribute("Token")) == token).ToArray();
-                        if (matches.Length > 1) throw new InvalidDataException("Duplicate base-map method token.");
+                        var matches = moduleRow.Elements(item.Kind).Where(r => Token((string)r.Attribute("Token")) == token).ToArray();
+                        if (matches.Length > 1) throw new InvalidDataException("Duplicate base-map member token.");
                         var row = matches.SingleOrDefault();
                         if (row == null) {
-                            row = new XElement("Method", new XAttribute("Token", "0x" + token.ToString("X8")), new XAttribute("ExpectedName", method.Name), new XAttribute("Signature", method.FullName));
+                            row = new XElement(item.Kind, new XAttribute("Token", "0x" + token.ToString("X8")), new XAttribute("ExpectedName", member.Name), new XAttribute("Signature", member.FullName));
                             moduleRow.Add(row);
                         }
-                        proposed.Add(row, edit.NewName);
+                        if (rename) proposed.Add(row, edit.NewName);
+                        var positions = new HashSet<int>();
+                        foreach (var p in edit.ParameterNames.Where(p => !string.IsNullOrWhiteSpace(p.NewName))) {
+                            if (!positions.Add(p.Sequence)) throw new InvalidDataException("Duplicate parameter edit sequence.");
+                            var definition = method.Parameters.SingleOrDefault(a => a.IsNormalMethodParameter && a.MethodSigIndex + 1 == p.Sequence);
+                            if (definition?.ParamDef == null || definition.Name != p.OriginalName) throw new InvalidDataException("Parameter sequence/name mismatch or missing metadata.");
+                            if (!Identifier(p.NewName)) throw new InvalidDataException("Invalid parameter identifier.");
+                            var existing = row.Elements("Parameter").Where(e => (int)e.Attribute("Sequence") == p.Sequence).ToArray();
+                            if (existing.Length > 1) throw new InvalidDataException("Duplicate base-map parameter.");
+                            var parameter = existing.SingleOrDefault();
+                            if (parameter == null) {
+                                parameter = new XElement("Parameter", new XAttribute("Sequence", p.Sequence), new XAttribute("ExpectedName", definition.Name));
+                                row.Add(parameter);
+                            }
+                            parameterProposals.Add(parameter, p.NewName);
+                        }
                     } catch (Exception e) { result.Errors.Add(new(edit.Module, edit.Token, e.Message)); }
                 }
             }
@@ -153,11 +181,27 @@ public static class ReviewMapUpdate {
                             var paramsUsed = new HashSet<string>(method.Parameters.Select(p => p.Name), StringComparer.Ordinal);
                             paramsUsed.UnionWith(method.GenericParameters.Select(p => p.Name.String));
                             for (var type = method.DeclaringType; type != null; type = type.DeclaringType) paramsUsed.UnionWith(type.GenericParameters.Select(p => p.Name.String));
+                            var originalParameterNames = new HashSet<string>(paramsUsed, StringComparer.Ordinal);
+                            // Unchanged aliases retain their names. Reserve all requested
+                            // names before repairing collisions so one edit cannot steal another.
+                            foreach (var p in row.Elements().Where(p => !parameterProposals.ContainsKey(p))) {
+                                string alias = (string)p.Attribute("NewName");
+                                if (alias != null) paramsUsed.Add(alias);
+                            }
+                            var parameterSuggestions = new HashSet<string>(row.Elements().Where(parameterProposals.ContainsKey).Select(p => parameterProposals[p]), StringComparer.Ordinal);
                             foreach (var p in row.Elements()) {
                                 int sequence = int.Parse((string)p.Attribute("Sequence"), CultureInfo.InvariantCulture);
                                 var parameter = method.Parameters.SingleOrDefault(a => a.IsNormalMethodParameter && a.MethodSigIndex + 1 == sequence);
                                 string alias = (string)p.Attribute("NewName");
-                                if (p.Name != "Parameter" || p.HasElements || !positions.Add(sequence) || parameter?.ParamDef == null || parameter.Name != (string)p.Attribute("ExpectedName") || !Identifier(alias) || !paramsUsed.Add(alias)) throw new InvalidDataException("Invalid/colliding parameter alias at sequence " + sequence);
+                                if (p.Name != "Parameter" || p.HasElements || !positions.Add(sequence) || parameter?.ParamDef == null || parameter.Name != (string)p.Attribute("ExpectedName")) throw new InvalidDataException("Invalid parameter alias at sequence " + sequence);
+                                if (parameterProposals.TryGetValue(p, out string requested)) {
+                                    string applied = requested;
+                                    int suffix = 2;
+                                    if (!paramsUsed.Add(applied)) do { applied = requested + suffix++.ToString(CultureInfo.InvariantCulture); } while (parameterSuggestions.Contains(applied) || !paramsUsed.Add(applied));
+                                    result.Changes.Add(new(relative, (string)row.Attribute("Token"), alias, requested, applied) { Kind = "Parameter", ParameterSequence = sequence });
+                                    p.SetAttributeValue("NewName", applied); alias = applied;
+                                } else if (!Identifier(alias) || row.Elements().Count(e => !parameterProposals.ContainsKey(e) && (string)e.Attribute("NewName") == alias) != 1 || originalParameterNames.Contains(alias))
+                                    throw new InvalidDataException("Invalid/colliding parameter alias at sequence " + sequence);
                                 parameterAliases.Add(alias);
                             }
                         } else throw new InvalidDataException("Expected Type or Method row.");
@@ -177,7 +221,7 @@ public static class ReviewMapUpdate {
                     string name = edit.Value;
                     int suffix = 2;
                     if (!used.Add(name)) do { name = edit.Value + suffix++.ToString(CultureInfo.InvariantCulture); } while (suggestions.Contains(name) || !used.Add(name));
-                    result.Changes.Add(new(relative, (string)edit.Key.Attribute("Token"), (string)edit.Key.Attribute("NewName"), edit.Value, name));
+                    result.Changes.Add(new(relative, (string)edit.Key.Attribute("Token"), (string)edit.Key.Attribute("NewName"), edit.Value, name) { Kind = edit.Key.Name.LocalName });
                     edit.Key.SetAttributeValue("NewName", name);
                 }
             }

@@ -149,3 +149,4 @@ try { MethodReview.WriteMap(reviewPath, reviewRoot, Path.Combine(root, "invalid-
 Require(badReview && !File.Exists(Path.Combine(root, "invalid-review.xml")), "Review rejects stale identity before writing");
 Console.WriteLine("PASS complete method review, short suffixes, meaningful names, blockers, parameter display, editable names and collision-safe conversion.");
 ReviewUpdateFixture.Run(root, reviewRoot, reviewMap);
+SymbolReviewFixture.Run(root, reviewRoot, reviewMap);

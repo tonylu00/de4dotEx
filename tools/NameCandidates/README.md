@@ -45,7 +45,10 @@ unrecognized names (one to three letters, also `_N` suffixes such as `c_1`) are
 included. Recognized words such as `Map`, `On`, `Load`, `Save`, and corroborated
 project vocabulary are preserved. Unknown longer names remain in the complete
 inventory for agent review even when not positively classified as obfuscated.
-Parameters use actual signature positions, excluding `this`.
+`ParameterNames` contains editable parameter rows with `Sequence`, `OriginalName`,
+`HasMetadata` and `NewName`. Sequences are actual signature positions, excluding
+`this`. The older `Parameters` strings remain for display; do not edit those to
+request a rename.
 
 Use `--review-obfuscated` instead of `--review` to write only the rows marked
 `NeedsReadableName`, with the same editable format and mapping restrictions.
@@ -79,10 +82,11 @@ dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --check-map ./
 dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --merge-map ./generated-methods.xml ./base-names.xml ./merged-names.xml ./merge-report.json
 ```
 
-`--update-map` validates the exact module snapshots, replaces accepted method
+`--update-map` validates the exact module snapshots, replaces accepted symbol
 aliases by physical module/token, retains untouched type/method/parameter rows,
 and repairs requested-name collisions against the entire merged module. Its
-report records `Before`, `Requested`, and `Applied` names. It collects per-entry
+report records `Kind`, `Before`, `Requested`, and `Applied` names, plus
+`ParameterSequence` for parameter edits. It collects per-entry
 errors with module/token identifiers, including stale identities, unsupported
 contracts, invalid identifiers and malformed existing rows. Any error prevents
 map publication; the original map is never changed. `--check-map` performs the
@@ -95,6 +99,35 @@ compiler and runtime checks are still necessary after accepted changes.
 cross-version workflow also needs no manual XML merge. Existing type and
 parameter rows stay in the base map. The generated proposal map may contain
 method renames only; unsupported proposal row kinds are rejected explicitly.
+
+## Review types and parameters
+
+Type discovery and editing also use the portable executable:
+
+```text
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --review-types ./restored ./types.json
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --update-map ./reviewed-types.json ./base-names.xml ./with-types.xml ./type-report.json
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --update-map ./reviewed-methods.json ./with-types.xml ./with-parameters.xml ./parameter-report.json
+```
+
+`--review-types` writes every type to `Types`; it does not claim to infer which
+types are obfuscated. Set a type row's `NewName` after reviewing its behavior.
+The alias changes its simple source name and retains its namespace and nesting.
+Global module and generic type aliases remain unsupported and are reported.
+
+To name parameters, start with `--review` or `--review-obfuscated`, and set
+`ParameterNames[].NewName` on the selected method. Leave the method's own
+`NewName` empty to preserve its current alias. Parameter edits require an actual
+metadata parameter at the recorded sequence and a matching original name.
+Unsupported method contracts remain blocked even for parameter-only edits.
+Untouched parameter aliases are retained, and collisions with other parameters
+or enclosing generic names receive reported suffixes.
+
+Both `--update-map` and `--review-map` accept type and parameter edits. A single
+inventory may contain both `Methods` and `Types` for one input root. No manual
+XML editing is required, and validation failure publishes no partial map.
+These are source aliases: dnSpy's restoration build target must run to retain
+the original binary names and SDK contracts.
 
 ## Cross-version matching
 

@@ -13,6 +13,7 @@ public static class MethodReview {
         public string Kind { get; set; } = "MethodReview";
         public string TargetRoot { get; set; }
         public List<Entry> Methods { get; set; } = new();
+        public List<Entry> Types { get; set; } = new();
         public List<Skip> Skips { get; set; } = new();
     }
     public sealed class Entry {
@@ -28,6 +29,13 @@ public static class MethodReview {
         public bool NeedsReadableName { get; set; }
         public string MappingBlocker { get; set; }
         public string[] Parameters { get; set; }
+        public ParameterEdit[] ParameterNames { get; set; } = Array.Empty<ParameterEdit>();
+        public string NewName { get; set; } = "";
+    }
+    public sealed class ParameterEdit {
+        public int Sequence { get; set; }
+        public string OriginalName { get; set; }
+        public bool HasMetadata { get; set; }
         public string NewName { get; set; } = "";
     }
     public static string Reason(string name, ISet<string> vocabulary = null) {
@@ -56,10 +64,10 @@ public static class MethodReview {
         foreach (string child in Directory.EnumerateFileSystemEntries(path).OrderBy(p => p, StringComparer.Ordinal))
             foreach (string file in Files(child)) yield return file;
     }
-    public static Inventory Scan(string input) {
+    public static Inventory Scan(string input, bool typesOnly = false) {
         input = Path.GetFullPath(input);
         string root = File.Exists(input) ? Path.GetDirectoryName(input) : Path.TrimEndingDirectorySeparator(input);
-        var result = new Inventory { TargetRoot = root };
+        var result = new Inventory { TargetRoot = root, Kind = typesOnly ? "SymbolReview" : "MethodReview" };
         foreach (string file in Files(input).Where(p => Path.GetExtension(p).Equals(".dll", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(p).Equals(".exe", StringComparison.OrdinalIgnoreCase))) {
             string relative = InputPaths.Relative(root, file);
             byte[] bytes = File.ReadAllBytes(file);
@@ -67,10 +75,19 @@ public static class MethodReview {
             try { module = ModuleDefMD.Load(bytes); }
             catch (BadImageFormatException) { result.Skips.Add(new Skip(relative, "non-managed input")); continue; }
             using (module) {
+                string hash = Convert.ToHexString(SHA256.HashData(bytes));
+                if (typesOnly) {
+                    foreach (var type in module.GetTypes()) result.Types.Add(new Entry {
+                        Module = relative, Identity = module.Assembly?.FullName, Mvid = module.Mvid.ToString(), Sha256 = hash,
+                        Type = type.FullName, Token = "0x" + type.MDToken.Raw.ToString("X8"), Signature = type.FullName,
+                        OriginalName = type.Name, MappingBlocker = type.IsGlobalModuleType ? "global-module-type" : type.HasGenericParameters ? "generic-type" : null,
+                        Parameters = Array.Empty<string>()
+                    });
+                    continue;
+                }
                 var methods = module.GetTypes().SelectMany(t => t.Methods).ToArray();
                 var vocabulary = MethodNameAnalysis.Learn(methods.Select(m => m.Name.String),
                     methods.Where(m => m.HasBody).SelectMany(m => m.Body.Instructions).Where(i => i.OpCode.Code == dnlib.DotNet.Emit.Code.Ldstr).Select(i => i.Operand as string));
-                string hash = Convert.ToHexString(SHA256.HashData(bytes));
                 foreach (var method in methods) {
                     string reason = method.IsConstructor ? null : Reason(method.Name, vocabulary);
                     result.Methods.Add(new Entry {
@@ -78,25 +95,37 @@ public static class MethodReview {
                         Type = method.DeclaringType.FullName, Token = "0x" + method.MDToken.Raw.ToString("X8"),
                         Signature = method.FullName, OriginalName = method.Name, Reason = reason,
                         NeedsReadableName = reason != null, MappingBlocker = Blocker(method),
-                        Parameters = method.Parameters.Where(p => p.IsNormalMethodParameter).Select(p => $"{p.MethodSigIndex + 1}: {p.Type} {p.Name}").ToArray()
+                        Parameters = method.Parameters.Where(p => p.IsNormalMethodParameter).Select(p => $"{p.MethodSigIndex + 1}: {p.Type} {p.Name}").ToArray(),
+                        ParameterNames = method.Parameters.Where(p => p.IsNormalMethodParameter).Select(p => new ParameterEdit {
+                            Sequence = p.MethodSigIndex + 1, OriginalName = p.Name, HasMetadata = p.ParamDef != null
+                        }).ToArray()
                     });
                 }
             }
         }
         return result;
     }
-    public static void Write(string input, string output, bool onlyObfuscated = false) {
+    public static void Write(string input, string output, bool onlyObfuscated = false, bool typesOnly = false) {
         if (File.Exists(output)) throw new IOException("Choose a new review output file.");
-        var inventory = Scan(input);
+        var inventory = Scan(input, typesOnly);
         int total = inventory.Methods.Count;
         if (onlyObfuscated) inventory.Methods = inventory.Methods.Where(m => m.NeedsReadableName).ToList();
         using var stream = new FileStream(output, FileMode.CreateNew, FileAccess.Write);
         JsonSerializer.Serialize(stream, inventory, new JsonSerializerOptions { WriteIndented = true });
-        Console.WriteLine($"Inventoried {total} methods; wrote {inventory.Methods.Count}; {inventory.Methods.Count(m => m.NeedsReadableName)} need review; {inventory.Methods.Count(m => m.NeedsReadableName && m.MappingBlocker != null)} require unsupported source-map contracts.");
+        Console.WriteLine(typesOnly ? $"Inventoried {inventory.Types.Count} types; {inventory.Types.Count(t => t.MappingBlocker != null)} require unsupported source-map contracts." : $"Inventoried {total} methods; wrote {inventory.Methods.Count}; {inventory.Methods.Count(m => m.NeedsReadableName)} need review; {inventory.Methods.Count(m => m.NeedsReadableName && m.MappingBlocker != null)} require unsupported source-map contracts.");
     }
     public static void WriteMap(string input, string targetRoot, string output) {
         var inventory = JsonSerializer.Deserialize<Inventory>(File.ReadAllText(input));
-        if (inventory?.Format != 1 || inventory.Kind != "MethodReview") throw new InvalidDataException("Expected a method review inventory.");
+        if (inventory?.Format != 1 || inventory.Kind != "MethodReview" && inventory.Kind != "SymbolReview") throw new InvalidDataException("Expected a method or symbol review inventory.");
+        if (inventory.Types.Any(t => !string.IsNullOrWhiteSpace(t.NewName)) || inventory.Methods.Any(m => m.ParameterNames.Any(p => !string.IsNullOrWhiteSpace(p.NewName)))) {
+            string basePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".xml");
+            string reportPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
+            try {
+                new System.Xml.Linq.XDocument(new System.Xml.Linq.XElement("SourceNameMap", new System.Xml.Linq.XAttribute("Version", "1"), new System.Xml.Linq.XAttribute("InputDirectory", Path.GetFullPath(targetRoot)))).Save(basePath);
+                if (!ReviewMapUpdate.Run(input, basePath, output, reportPath)) throw new InvalidDataException(File.ReadAllText(reportPath));
+            } finally { if (File.Exists(basePath)) File.Delete(basePath); if (File.Exists(reportPath)) File.Delete(reportPath); }
+            return;
+        }
         var selected = inventory.Methods.Where(m => !string.IsNullOrWhiteSpace(m.NewName)).ToArray();
         if (selected.Length == 0) throw new InvalidDataException("Set NewName on at least one method.");
         // Reuse the source-map writer's authoritative byte/token/signature and
