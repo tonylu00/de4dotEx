@@ -151,3 +151,4 @@ Console.WriteLine("PASS complete method review, short suffixes, meaningful names
 ReviewUpdateFixture.Run(root, reviewRoot, reviewMap);
 SymbolReviewFixture.Run(root, reviewRoot, reviewMap);
 ContractFamilyFixture.Run(root);
+OrphanSpecialNameFixture.Run(root);

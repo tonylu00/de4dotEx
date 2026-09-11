@@ -52,10 +52,9 @@ public static class MethodReview {
         return null;
     }
     internal static string Blocker(MethodDef m) {
-        if (m.IsConstructor) return "constructor";
+        string blocker = SourceNameMapping.MethodContractFamilies.MethodBlocker(m);
+        if (blocker != null) return blocker;
         if (m.IsVirtual || m.HasOverrides) return "virtual-or-override: use --review-families for complete contract review";
-        if (m.IsSpecialName || m.IsRuntimeSpecialName) return "accessor-or-special-name";
-        if (m.IsPinvokeImpl || m.IsRuntime) return "native-or-runtime-method";
         return null;
     }
     internal static IEnumerable<string> Files(string path) {

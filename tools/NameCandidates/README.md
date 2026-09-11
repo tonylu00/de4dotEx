@@ -73,6 +73,15 @@ binary-renaming policy.
 
 ## Update existing maps and preflight
 
+Methods retaining only the metadata `SpecialName` bit can be reviewed and
+aliased when no property or event actually owns them. Obfuscators sometimes
+remove those association rows while retaining the bit; dnSpy emits the methods
+as ordinary declarations and restores their original names and flags on build.
+Actual property/event accessors, operators, constructors, runtime special names,
+native methods and unsupported virtual contracts remain guarded. The metadata
+regression covers both orphan methods and accessors missing the flag; dnSpy's
+`OrphanSpecialNameRegression` additionally executes original and rebuilt callers.
+
 For editing an existing source map, use the executable updater instead of
 manually merging XML:
 

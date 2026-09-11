@@ -32,7 +32,14 @@ namespace SourceNameMapping {
         public Family Get(MethodDef method) => families.TryGetValue(method, out var family) ? family : null;
         public static string MethodBlocker(MethodDef method) {
             if (method.IsConstructor) return "constructor";
-            if (method.IsSpecialName || method.IsRuntimeSpecialName || method.SemanticsAttributes != 0) return "accessor-or-special-name";
+            if (method.IsRuntimeSpecialName || method.SemanticsAttributes != 0 || method.Name.String.StartsWith("op_", StringComparison.Ordinal)) return "accessor-operator-or-runtime-special-name";
+            var owner = method.DeclaringType;
+            if (owner != null && (owner.Properties.Any(p => p.GetMethods.Contains(method) || p.SetMethods.Contains(method) || p.OtherMethods.Contains(method)) ||
+                owner.Events.Any(e => e.AddMethod == method || e.RemoveMethod == method || e.InvokeMethod == method || e.OtherMethods.Contains(method))))
+                return "property-or-event-accessor";
+            // Obfuscators may remove the property/event row while leaving its
+            // method's SpecialName bit. With no syntax contract, this is emitted
+            // as an ordinary method; the build task restores the original flag.
             if (method.IsPinvokeImpl || method.IsRuntime) return "native-or-runtime-method";
             if (method.HasOverrides) return "explicit-method-implementation requires qualified source-name restoration";
             if (method.IsStatic && method.IsVirtual) return "static virtual contract";

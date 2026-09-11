@@ -94,8 +94,9 @@ public static class SourceMapWriter {
                 if (!seen.Add(raw)) throw new InvalidDataException("Duplicate candidate token.");
                 if (!(module.ResolveToken(raw) is MethodDef method) || method.FullName != candidate.Target)
                     throw new InvalidDataException("Candidate token/signature mismatch.");
-                if (method.IsConstructor || method.IsVirtual || method.HasOverrides || method.IsSpecialName || method.IsRuntimeSpecialName || method.IsPinvokeImpl || method.IsRuntime)
-                    throw new InvalidDataException($"Unsupported source-map method: {group.Key} token 0x{raw:X8} {method.FullName}. Constructors, virtual/override, accessor and native/runtime methods require additional contract support.");
+                string blocker = MethodReview.Blocker(method);
+                if (blocker != null)
+                    throw new InvalidDataException($"Unsupported source-map method: {group.Key} token 0x{raw:X8} {method.FullName}: {blocker}.");
                 if (!Identifier(candidate.SuggestedName)) throw new InvalidDataException("Invalid suggested source identifier.");
                 string name = candidate.SuggestedName;
                 if (!used.Add(name)) {
