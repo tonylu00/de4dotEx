@@ -15,17 +15,17 @@ public static class SourceMapWriter {
         using var reader = System.Xml.XmlReader.Create(stream, settings);
         var map = XDocument.Load(reader).Root;
         if (map?.Name != "SourceNameMap" || (string)map.Attribute("Version") != "1" ||
-            !string.Equals(Root((string)map.Attribute("InputDirectory")), Root(referenceRoot), StringComparison.OrdinalIgnoreCase))
+            !string.Equals(Root((string)map.Attribute("InputDirectory")), Root(referenceRoot), InputPaths.Comparison))
             throw new InvalidDataException("Reference source map has a different input tree or format.");
-        var result = new Dictionary<string, ReferenceNames>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, ReferenceNames>(InputPaths.Comparer);
         foreach (var row in map.Elements("Module")) {
             string relative = (string)row.Attribute("Path") ?? throw new InvalidDataException("Missing reference module path.");
             string path = Path.GetFullPath(Path.Combine(referenceRoot, relative));
-            if (Path.IsPathRooted(relative) || !path.StartsWith(Root(referenceRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            if (Path.IsPathRooted(relative) || !path.StartsWith(Root(referenceRoot) + Path.DirectorySeparatorChar, InputPaths.Comparison))
                 throw new InvalidDataException("Reference module leaves input tree.");
             for (string current = path; current != null; current = Path.GetDirectoryName(current)) {
                 if ((File.GetAttributes(current) & System.IO.FileAttributes.ReparsePoint) != 0) throw new IOException("Linked reference input is not supported.");
-                if (string.Equals(current, Root(referenceRoot), StringComparison.OrdinalIgnoreCase)) break;
+                if (string.Equals(current, Root(referenceRoot), InputPaths.Comparison)) break;
             }
             byte[] bytes = File.ReadAllBytes(path);
             using var module = ModuleDefMD.Load(bytes);
@@ -33,7 +33,7 @@ public static class SourceMapWriter {
                 !Guid.TryParse((string)row.Attribute("Mvid"), out var mvid) || mvid != module.Mvid)
                 throw new InvalidDataException("Stale reference source map module.");
             var names = new Dictionary<uint, string>();
-            if (!result.TryAdd(Path.GetRelativePath(referenceRoot, path), new ReferenceNames(Convert.ToHexString(SHA256.HashData(bytes)), names))) throw new InvalidDataException("Duplicate reference module.");
+            if (!result.TryAdd(InputPaths.Relative(referenceRoot, path), new ReferenceNames(Convert.ToHexString(SHA256.HashData(bytes)), names))) throw new InvalidDataException("Duplicate reference module.");
             foreach (var entry in row.Elements("Method").Where(e => e.Attribute("NewName") != null)) {
                 string token = (string)entry.Attribute("Token") ?? "";
                 if (token.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) token = token.Substring(2);
@@ -54,15 +54,15 @@ public static class SourceMapWriter {
         if (document.RootElement.GetProperty("Format").GetInt32() != 1) throw new InvalidDataException("Unsupported candidate report format.");
         var report = document.RootElement.Deserialize<Report>() ?? throw new InvalidDataException("Missing report.");
         targetRoot = Root(targetRoot);
-        if (!string.Equals(targetRoot, Root(report.TargetRoot), StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Target tree differs from the candidate report.");
+        if (!string.Equals(targetRoot, Root(report.TargetRoot), InputPaths.Comparison)) throw new InvalidDataException("Target tree differs from the candidate report.");
         var root = new XElement("SourceNameMap", new XAttribute("Version", "1"), new XAttribute("InputDirectory", targetRoot));
-        foreach (var group in report.Candidates.GroupBy(c => c.Module, StringComparer.OrdinalIgnoreCase).OrderBy(g => g.Key, StringComparer.Ordinal)) {
+        foreach (var group in report.Candidates.GroupBy(c => c.Module, InputPaths.Comparer).OrderBy(g => g.Key, StringComparer.Ordinal)) {
             if (Path.IsPathRooted(group.Key)) throw new InvalidDataException("Expected a relative module path.");
             string path = Path.GetFullPath(Path.Combine(targetRoot, group.Key));
-            if (!path.StartsWith(targetRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Module leaves target tree.");
+            if (!path.StartsWith(targetRoot + Path.DirectorySeparatorChar, InputPaths.Comparison)) throw new InvalidDataException("Module leaves target tree.");
             for (string current = path; current != null; current = Path.GetDirectoryName(current)) {
                 if ((File.GetAttributes(current) & System.IO.FileAttributes.ReparsePoint) != 0) throw new IOException("Linked target input is not supported.");
-                if (string.Equals(current, targetRoot, StringComparison.OrdinalIgnoreCase)) break;
+                if (string.Equals(current, targetRoot, InputPaths.Comparison)) break;
             }
             byte[] bytes = File.ReadAllBytes(path);
             string hash = Convert.ToHexString(SHA256.HashData(bytes));
@@ -95,7 +95,7 @@ public static class SourceMapWriter {
                 if (!(module.ResolveToken(raw) is MethodDef method) || method.FullName != candidate.Target)
                     throw new InvalidDataException("Candidate token/signature mismatch.");
                 if (method.IsConstructor || method.IsVirtual || method.HasOverrides || method.IsSpecialName || method.IsRuntimeSpecialName || method.IsPinvokeImpl || method.IsRuntime)
-                    throw new InvalidDataException("Unsupported source-map method.");
+                    throw new InvalidDataException($"Unsupported source-map method: {group.Key} token 0x{raw:X8} {method.FullName}. Constructors, virtual/override, accessor and native/runtime methods require additional contract support.");
                 if (!Identifier(candidate.SuggestedName)) throw new InvalidDataException("Invalid suggested source identifier.");
                 string name = candidate.SuggestedName;
                 if (!used.Add(name)) {

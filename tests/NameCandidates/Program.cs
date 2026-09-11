@@ -1,6 +1,7 @@
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 using De4dot.NameCandidates;
+using System.Text.Json;
 
 if (args.Length != 1 || Directory.Exists(args[0])) throw new ArgumentException("Supply a new fixture directory.");
 string root = Path.GetFullPath(args[0]), reference = Path.Combine(root, "reference"), target = Path.Combine(root, "target");
@@ -112,3 +113,38 @@ foreach (string invalidReference in new[] { "hash", "signature", "path", "duplic
 }
 Console.WriteLine("PASS reviewed reference method aliases, physical scope, provenance and stale-map rejection.");
 Console.WriteLine("PASS physical duplicates, dependency scopes, version changes, ambiguity, readable names, native/missing inputs, provenance, deterministic output and no overwrite.");
+foreach (string name in new[] { "a", "b", "c_1", "d_12", "acv", "Q", "method_12" })
+    Require(MethodReview.Reason(name) != null, "Review includes " + name);
+foreach (string name in new[] { "Load", "Map", "On", "Save", "Get", "Set", "IsDeviceTesterLicensed", "Save_1", "ToMetricKey" })
+    Require(MethodReview.Reason(name) == null, "Review preserves " + name);
+Require(MethodReview.Reason("ETS", new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ETS" }) == null, "Review learned acronym");
+string reviewRoot = Path.Combine(root, "review");
+Directory.CreateDirectory(reviewRoot);
+using (var module = new ModuleDefUser("Review.dll") { Kind = ModuleKind.Dll }) {
+    new AssemblyDefUser("Review", new Version(1, 0)).Modules.Add(module);
+    var type = new TypeDefUser("Example", "Manager", module.CorLibTypes.Object.TypeDefOrRef);
+    module.Types.Add(type);
+    foreach (string name in new[] { "a", "b", "c_1", "d_1", "Load", "Save", "Map", "On" }) {
+        var method = new MethodDefUser(name, MethodSig.CreateInstance(module.CorLibTypes.Void, module.CorLibTypes.Int32),
+            MethodAttributes.Public | (name == "b" ? MethodAttributes.Virtual : 0));
+        method.ParamDefs.Add(new ParamDefUser("count", 1));
+        method.Body = new CilBody(); method.Body.Instructions.Add(Instruction.Create(OpCodes.Ret));
+        type.Methods.Add(method);
+    }
+    module.Write(Path.Combine(reviewRoot, "Review.dll"));
+}
+var review = MethodReview.Scan(reviewRoot);
+Require(review.Methods.Count == 8 && review.Methods.Count(m => m.NeedsReadableName) == 4, "Complete inventory, independent of body size");
+Require(review.Methods.Single(m => m.OriginalName == "b").MappingBlocker != null, "Unsupported virtual visible, not silently omitted");
+Require(review.Methods.Single(m => m.OriginalName == "a").Parameters.Single().Contains("count"), "Parameter metadata is visible");
+review.Methods.Single(m => m.OriginalName == "a").NewName = "Save";
+string reviewPath = Path.Combine(root, "review.json"), reviewMap = Path.Combine(root, "review.xml");
+File.WriteAllText(reviewPath, JsonSerializer.Serialize(review));
+MethodReview.WriteMap(reviewPath, reviewRoot, reviewMap);
+Require(System.Xml.Linq.XDocument.Load(reviewMap).Descendants("Method").Single().Attribute("NewName").Value == "Save2", "Review map repairs collision");
+review.Methods.Single(m => m.OriginalName == "a").Sha256 = "00";
+File.WriteAllText(reviewPath, JsonSerializer.Serialize(review));
+bool badReview = false;
+try { MethodReview.WriteMap(reviewPath, reviewRoot, Path.Combine(root, "invalid-review.xml")); } catch (InvalidDataException) { badReview = true; }
+Require(badReview && !File.Exists(Path.Combine(root, "invalid-review.xml")), "Review rejects stale identity before writing");
+Console.WriteLine("PASS complete method review, short suffixes, meaningful names, blockers, parameter display, editable names and collision-safe conversion.");

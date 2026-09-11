@@ -13,6 +13,24 @@ namespace De4dot.NameCandidates;
 public static class Program {
     public static int Main(string[] args) {
         try {
+            if (args.Length == 1 && (args[0] == "--help" || args[0] == "-h")) {
+                Console.WriteLine("NameCandidates (.NET 8, Windows/macOS/Linux)\n" +
+                    "  --review <assembly-or-tree> <new-all-methods.json>\n" +
+                    "  --review-obfuscated <assembly-or-tree> <new-worklist.json>\n" +
+                    "  --review-map <reviewed.json> <input-tree> <new-source-map.xml>\n" +
+                    "  [--reference-source-map map.xml] <reference-tree> <target-tree> <new-candidates.json>\n" +
+                    "  --source-map <selected-candidates.json> <target-tree> <new-source-map.xml>\n" +
+                    "Edit NewName in a review inventory. MappingBlocker describes unsupported source contracts. Inputs are never executed or modified.");
+                return 0;
+            }
+            if (args.Length == 3 && (args[0] == "--review" || args[0] == "--review-obfuscated")) {
+                MethodReview.Write(args[1], args[2], args[0] == "--review-obfuscated");
+                return 0;
+            }
+            if (args.Length == 4 && args[0] == "--review-map") {
+                MethodReview.WriteMap(args[1], args[2], args[3]);
+                return 0;
+            }
             if (args.Length == 4 && args[0] == "--source-map") {
                 SourceMapWriter.Write(args[1], args[2], args[3]);
                 Console.WriteLine("Source map written; runtime names are restored by dnSpy's SDK build task.");
@@ -71,12 +89,7 @@ public static class Scanner {
     static bool Matchable(MethodDef m) => m.HasBody && !m.IsConstructor && !m.IsVirtual &&
         !m.IsSpecialName && !m.IsPinvokeImpl && !m.HasOverrides && m.Body.Instructions.Count >= 3;
     static bool Placeholder(string name) => Regex.IsMatch(name, @"\A[gsv]?method_[0-9]+\z");
-    static bool NeedsReadableName(string name, ISet<string> vocabulary) {
-        if (Placeholder(name)) return true;
-        var assessment = MethodNameAnalysis.Analyze(name, vocabulary);
-        return assessment == MethodNameAnalysis.Assessment.Obfuscated || assessment == MethodNameAnalysis.Assessment.Unknown &&
-            Regex.IsMatch(name, @"\A(?:[a-z]{1,3}|[gsv]?method_[0-9]+)\z");
-    }
+    static bool NeedsReadableName(string name, ISet<string> vocabulary) => MethodReview.Reason(name, vocabulary) != null;
 
     // Shared with full-source regression audits. This compares normalized IL,
     // not semantic equivalence: assembly versions and unused locals are omitted,
@@ -166,13 +179,13 @@ public static class Scanner {
         var report = new Report { ReferenceRoot = referenceRoot, TargetRoot = targetRoot,
             ReferenceSourceMap = referenceSourceMap == null ? null : Path.GetFullPath(referenceSourceMap),
             ReferenceSourceMapHash = referenceMapBytes == null ? null : Hash(referenceMapBytes) };
-        var referenceNames = referenceMapBytes == null ? new Dictionary<string, SourceMapWriter.ReferenceNames>(StringComparer.OrdinalIgnoreCase) :
+        var referenceNames = referenceMapBytes == null ? new Dictionary<string, SourceMapWriter.ReferenceNames>(InputPaths.Comparer) :
             SourceMapWriter.ReadReferenceNames(referenceMapBytes, referenceRoot);
         // Pair by relative path, never by simple assembly name: compatibility
         // directories can contain unrelated implementations of the same identity.
-        var references = Files(referenceRoot).ToDictionary(p => Path.GetRelativePath(referenceRoot, p), StringComparer.OrdinalIgnoreCase);
+        var references = Files(referenceRoot).ToDictionary(p => InputPaths.Relative(referenceRoot, p), InputPaths.Comparer);
         foreach (var targetPath in Files(targetRoot)) {
-            string relative = Path.GetRelativePath(targetRoot, targetPath);
+            string relative = InputPaths.Relative(targetRoot, targetPath);
             if (!references.TryGetValue(relative, out var referencePath)) { report.Skips.Add(new(relative, "No reference at the same physical path")); continue; }
             var aBytes = File.ReadAllBytes(referencePath); var bBytes = File.ReadAllBytes(targetPath);
             if (referenceNames.TryGetValue(relative, out var checkedNames) && checkedNames.Hash != Hash(aBytes))

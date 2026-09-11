@@ -1,5 +1,75 @@
 # Cross-version name candidates
 
+## Complete method review (start here for manual naming)
+
+This is a C#/.NET 8 console tool for Windows, macOS and Linux. It does not need
+PowerShell, Windows registry access, dnSpy GUI or execution of the analyzed
+assemblies. Build and invoke the DLL through `dotnet` on any of those systems:
+
+```text
+dotnet build tools/NameCandidates/NameCandidates.csproj -c Release
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --review-obfuscated ./restored ./methods.json
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --review-map ./reviewed.json ./restored ./source-names.xml
+```
+
+The examples assume the repository working directory and a `restored` input
+directory. Change those paths for your checkout. Relative module paths are
+written with `/`; Unix paths are not collapsed using Windows case comparisons.
+Generate a fresh inventory after moving inputs to another machine so its root
+matches that machine; the physical module hashes/tokens still bind each entry.
+The GitHub Actions name-review matrix is configured to run the metadata-only regression on
+Windows, macOS and Linux. Building and launching the ETS application itself is
+a separate Windows task; name analysis and map production are cross-platform.
+
+Local validation on 2026-09-11 passed the metadata regression on Windows,
+including all earlier cross-version matching cases. macOS/Linux jobs have not
+been run locally. Full ETS inventories found 19,727/77,667 review methods in
+6.3/6.4. The reported Common `Load`, `Map`, `On`, `Save` false positives are absent;
+short LicenseManager names are included. Editing one real schema-helper row in
+each version, converting its review map and rebuilding Common passed both SDK
+and original-name audits, in 6.3-first order. This is a focused map-workflow
+check, not a new whole-ETS live run.
+
+Cross-version candidates are only methods with a qualifying match; they are not
+an inventory of obfuscated methods. To discover names in a single assembly or
+an entire tree, use:
+
+```powershell
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --review D:\analysis\input D:\analysis\methods.json
+```
+
+The JSON includes **every method**, including interfaces, accessors, virtual
+methods and tiny bodies. Filter `NeedsReadableName` for likely naming work;
+`MappingBlocker` independently explains current source-map restrictions. Short
+unrecognized names (one to three letters, also `_N` suffixes such as `c_1`) are
+included. Recognized words such as `Map`, `On`, `Load`, `Save`, and corroborated
+project vocabulary are preserved. Unknown longer names remain in the complete
+inventory for agent review even when not positively classified as obfuscated.
+Parameters use actual signature positions, excluding `this`.
+
+Use `--review-obfuscated` instead of `--review` to write only the rows marked
+`NeedsReadableName`, with the same editable format and mapping restrictions.
+This is useful for large trees; use full review when investigating unknown names.
+
+Edit `NewName` on accepted rows in a copy of the JSON. Leave others empty, or
+retain only selected rows without changing the top-level identity fields:
+
+```powershell
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --review-map D:\analysis\reviewed.json D:\analysis\input D:\analysis\new-source-names.xml
+```
+
+No reference version or body match is required. Conversion verifies physical
+paths, hashes, MVIDs, identities, tokens, signatures and actual mapping eligibility
+from the binary; editable `MappingBlocker` flags cannot bypass validation. Name
+collisions receive deterministic suffixes. Review the resulting map before
+export. This produces a new map, not an in-place merge with an existing seed map;
+preserve existing type/parameter aliases when merging. Unsupported contracts
+are visible work items, not permission to rename their binaries and break SDK
+callers. The complete inventory is read-only and has no effect on automatic
+binary-renaming policy.
+
+## Cross-version matching
+
 Build and run this read-only helper with .NET 8 or newer:
 
 ```powershell

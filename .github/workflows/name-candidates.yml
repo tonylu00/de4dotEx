@@ -1,0 +1,27 @@
+name: Name review portability
+on:
+  push:
+    paths:
+      - 'tools/NameCandidates/**'
+      - 'tests/NameCandidates/**'
+      - 'de4dot.code/renamer/MethodNameAnalysis.cs'
+      - '.github/workflows/name-candidates.yml'
+  pull_request:
+    paths:
+      - 'tools/NameCandidates/**'
+      - 'tests/NameCandidates/**'
+      - 'de4dot.code/renamer/MethodNameAnalysis.cs'
+      - '.github/workflows/name-candidates.yml'
+jobs:
+  review:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet run --project tests/NameCandidates/NameCandidates.Tests.csproj -c Release -- "${{ runner.temp }}/name-review-test"
