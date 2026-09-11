@@ -13,11 +13,20 @@ namespace De4dot.NameCandidates;
 public static class Program {
     public static int Main(string[] args) {
         try {
+            if (args.Length == 5 && args[0] == "--update-map")
+                return ReviewMapUpdate.Run(args[1], args[2], args[3], args[4]) ? 0 : 1;
+            if (args.Length == 5 && args[0] == "--merge-map")
+                return ReviewMapUpdate.Run(args[1], args[2], args[3], args[4], true) ? 0 : 1;
+            if (args.Length == 3 && args[0] == "--check-map")
+                return ReviewMapUpdate.Run(null, args[1], null, args[2]) ? 0 : 1;
             if (args.Length == 1 && (args[0] == "--help" || args[0] == "-h")) {
                 Console.WriteLine("NameCandidates (.NET 8, Windows/macOS/Linux)\n" +
                     "  --review <assembly-or-tree> <new-all-methods.json>\n" +
                     "  --review-obfuscated <assembly-or-tree> <new-worklist.json>\n" +
                     "  --review-map <reviewed.json> <input-tree> <new-source-map.xml>\n" +
+                    "  --update-map <reviewed.json> <base-map.xml> <new-map.xml> <new-report.json>\n" +
+                    "  --merge-map <generated-method-map.xml> <base-map.xml> <new-map.xml> <new-report.json>\n" +
+                    "  --check-map <map.xml> <new-report.json>\n" +
                     "  [--reference-source-map map.xml] <reference-tree> <target-tree> <new-candidates.json>\n" +
                     "  --source-map <selected-candidates.json> <target-tree> <new-source-map.xml>\n" +
                     "Edit NewName in a review inventory. MappingBlocker describes unsupported source contracts. Inputs are never executed or modified.");

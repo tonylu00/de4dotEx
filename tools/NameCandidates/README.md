@@ -68,6 +68,34 @@ are visible work items, not permission to rename their binaries and break SDK
 callers. The complete inventory is read-only and has no effect on automatic
 binary-renaming policy.
 
+## Update existing maps and preflight
+
+For editing an existing source map, use the executable updater instead of
+manually merging XML:
+
+```text
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --update-map ./reviewed.json ./base-names.xml ./updated-names.xml ./update-report.json
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --check-map ./updated-names.xml ./check-report.json
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --merge-map ./generated-methods.xml ./base-names.xml ./merged-names.xml ./merge-report.json
+```
+
+`--update-map` validates the exact module snapshots, replaces accepted method
+aliases by physical module/token, retains untouched type/method/parameter rows,
+and repairs requested-name collisions against the entire merged module. Its
+report records `Before`, `Requested`, and `Applied` names. It collects per-entry
+errors with module/token identifiers, including stale identities, unsupported
+contracts, invalid identifiers and malformed existing rows. Any error prevents
+map publication; the original map is never changed. `--check-map` performs the
+same metadata/alias preflight without generating source or changing a map.
+Each loaded module and hash is cached in memory for the operation. These tools
+are .NET commands with no PowerShell dependency. Preflight addresses map validity;
+compiler and runtime checks are still necessary after accepted changes.
+
+`--merge-map` accepts the method-only XML produced by `--source-map`, so the
+cross-version workflow also needs no manual XML merge. Existing type and
+parameter rows stay in the base map. The generated proposal map may contain
+method renames only; unsupported proposal row kinds are rejected explicitly.
+
 ## Cross-version matching
 
 Build and run this read-only helper with .NET 8 or newer:

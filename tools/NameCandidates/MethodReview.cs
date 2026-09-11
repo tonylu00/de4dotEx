@@ -42,7 +42,7 @@ public static class MethodReview {
         if (assessment == MethodNameAnalysis.Assessment.Obfuscated) return "lexically-obfuscated";
         return null;
     }
-    static string Blocker(MethodDef m) {
+    internal static string Blocker(MethodDef m) {
         if (m.IsConstructor) return "constructor";
         if (m.IsVirtual || m.HasOverrides) return "virtual-or-override: requires contract-family source-map support";
         if (m.IsSpecialName || m.IsRuntimeSpecialName) return "accessor-or-special-name";
