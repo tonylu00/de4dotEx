@@ -24,6 +24,7 @@ public static class Program {
                     "  --review <assembly-or-tree> <new-all-methods.json>\n" +
                     "  --review-obfuscated <assembly-or-tree> <new-worklist.json>\n" +
                     "  --review-types <assembly-or-tree> <new-type-review.json>\n" +
+                    "  --review-families <assembly-or-tree> <new-contract-review.json>\n" +
                     "  --review-map <reviewed.json> <input-tree> <new-source-map.xml>\n" +
                     "  --update-map <reviewed.json> <base-map.xml> <new-map.xml> <new-report.json>\n" +
                     "  --merge-map <generated-method-map.xml> <base-map.xml> <new-map.xml> <new-report.json>\n" +
@@ -39,6 +40,10 @@ public static class Program {
             }
             if (args.Length == 3 && args[0] == "--review-types") {
                 MethodReview.Write(args[1], args[2], typesOnly: true);
+                return 0;
+            }
+            if (args.Length == 3 && args[0] == "--review-families") {
+                FamilyReview.Write(args[1], args[2]);
                 return 0;
             }
             if (args.Length == 4 && args[0] == "--review-map") {

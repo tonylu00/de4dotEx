@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using dnlib.DotNet;
+using SourceNameMapping;
 
 namespace De4dot.NameCandidates;
 
@@ -90,6 +91,9 @@ public static class ReviewMapUpdate {
             }
             var proposed = new Dictionary<XElement, string>();
             var parameterProposals = new Dictionary<XElement, string>();
+            MethodContractFamilies graph = null;
+            MethodContractFamilies Graph() => graph ??= FamilyReview.Build(directory, Load);
+            string Relative(ModuleDef module) => InputPaths.Relative(directory, loaded.Single(p => p.Value == module).Key);
             if (reviewPath != null) {
                 result.ReviewSha256 = Hash(reviewPath);
                 MethodReview.Inventory inventory;
@@ -111,6 +115,35 @@ public static class ReviewMapUpdate {
                     }
                 } else inventory = JsonSerializer.Deserialize<MethodReview.Inventory>(File.ReadAllText(reviewPath));
                 if (inventory == null || inventory.Kind != "MethodReview" && inventory.Kind != "SymbolReview" || inventory.Format != 1 || !InputPaths.Comparer.Equals(directory, Path.TrimEndingDirectorySeparator(Path.GetFullPath(inventory.TargetRoot)))) throw new InvalidDataException("Review format/input root mismatch.");
+                // One reviewed family member selects the contract. Verify that
+                // seed before expanding from authoritative metadata, never from
+                // an editable member list in the JSON.
+                var requestedFamilies = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (var seed in inventory.Methods.Where(e => e.ContractFamily != null && !string.IsNullOrWhiteSpace(e.NewName)).ToArray()) {
+                    try {
+                        var module = Load(seed.Module);
+                        if (module.ResolveToken(Token(seed.Token)) is not MethodDef method || method.FullName != seed.Signature || method.Name != seed.OriginalName ||
+                            module.Assembly?.FullName != seed.Identity || !Guid.TryParse(seed.Mvid, out var mvid) || module.Mvid != mvid ||
+                            !StringComparer.OrdinalIgnoreCase.Equals(moduleHashes[module], seed.Sha256)) throw new InvalidDataException("Stale family seed identity/token/signature.");
+                        var family = Graph().Get(method);
+                        if (family == null || family.Id != seed.ContractFamily || family.Blockers.Length != 0) throw new InvalidDataException("Stale or unsupported contract family: " + string.Join("; ", family?.Blockers ?? Array.Empty<string>()));
+                        if (requestedFamilies.TryGetValue(family.Id, out var requested) && requested != seed.NewName) throw new InvalidDataException("Conflicting names requested for one contract family.");
+                        requestedFamilies[family.Id] = seed.NewName;
+                        foreach (var member in family.Methods) {
+                            string path = Relative(member.Module), token = "0x" + member.MDToken.Raw.ToString("X8");
+                            var matches = inventory.Methods.Where(e => InputPaths.Comparer.Equals(e.Module, path) && e.Token == token).ToArray();
+                            if (matches.Length > 1) throw new InvalidDataException("Duplicate family review member.");
+                            var edit = matches.SingleOrDefault();
+                            if (edit == null) {
+                                edit = FamilyReview.Entry(member, path, moduleHashes[(ModuleDefMD)member.Module], family);
+                                inventory.Methods.Add(edit);
+                            }
+                            if (edit.ContractFamily != null && edit.ContractFamily != family.Id || !string.IsNullOrWhiteSpace(edit.NewName) && edit.NewName != seed.NewName)
+                                throw new InvalidDataException("Conflicting family member edit.");
+                            edit.ContractFamily = family.Id; edit.NewName = seed.NewName;
+                        }
+                    } catch (Exception e) { result.Errors.Add(new(seed.Module, seed.Token, e.Message)); }
+                }
                 var seen = new HashSet<string>(InputPaths.Comparer);
                 var edits = inventory.Methods.Select(e => (Entry: e, Kind: "Method")).Concat(inventory.Types.Select(e => (Entry: e, Kind: "Type")));
                 foreach (var item in edits.Where(e => !string.IsNullOrWhiteSpace(e.Entry.NewName) || e.Entry.ParameterNames.Any(p => !string.IsNullOrWhiteSpace(p.NewName)))) {
@@ -127,7 +160,7 @@ public static class ReviewMapUpdate {
                             if (member is not TypeDef t || t.IsGlobalModuleType || t.HasGenericParameters || edit.ParameterNames.Any(p => !string.IsNullOrWhiteSpace(p.NewName))) throw new InvalidDataException("Unsupported type alias.");
                         } else {
                             if (method == null) throw new InvalidDataException("Expected a method token.");
-                            string blocker = MethodReview.Blocker(method);
+                            string blocker = edit.ContractFamily == null ? MethodReview.Blocker(method) : MethodContractFamilies.MethodBlocker(method);
                             if (blocker != null) throw new InvalidDataException(blocker);
                         }
                         bool rename = !string.IsNullOrWhiteSpace(edit.NewName);
@@ -144,6 +177,7 @@ public static class ReviewMapUpdate {
                             moduleRow.Add(row);
                         }
                         if (rename) proposed.Add(row, edit.NewName);
+                        if (edit.ContractFamily != null) row.SetAttributeValue("ContractFamily", edit.ContractFamily);
                         var positions = new HashSet<int>();
                         foreach (var p in edit.ParameterNames.Where(p => !string.IsNullOrWhiteSpace(p.NewName))) {
                             if (!positions.Add(p.Sequence)) throw new InvalidDataException("Duplicate parameter edit sequence.");
@@ -162,12 +196,45 @@ public static class ReviewMapUpdate {
                     } catch (Exception e) { result.Errors.Add(new(edit.Module, edit.Token, e.Message)); }
                 }
             }
+            var contractRows = new Dictionary<MethodDef, XElement>();
+            foreach (var pair in moduleRows) foreach (var row in pair.Value.Elements().Where(r => r.Attribute("ContractFamily") != null)) {
+                try {
+                    if (row.Name != "Method" || loaded[pair.Key].ResolveToken(Token((string)row.Attribute("Token"))) is not MethodDef method) throw new InvalidDataException("Expected contract method.");
+                    var family = Graph().Get(method);
+                    if (family == null || family.Id != (string)row.Attribute("ContractFamily") || family.Blockers.Length != 0) throw new InvalidDataException("Stale or unsupported contract family.");
+                    contractRows.Add(method, row);
+                } catch (Exception e) { result.Errors.Add(new((string)pair.Value.Attribute("Path"), (string)row.Attribute("Token"), e.Message)); }
+            }
+            foreach (var family in contractRows.Keys.Select(m => Graph().Get(m)).Distinct().OrderBy(f => f.Id, StringComparer.Ordinal)) {
+                if (family.Methods.Any(m => !contractRows.ContainsKey(m))) { result.Errors.Add(new(Relative(family.Methods[0].Module), null, "Incomplete contract family " + family.Id)); continue; }
+                var rows = family.Methods.Select(m => contractRows[m]).ToArray();
+                var edits = rows.Where(proposed.ContainsKey).ToArray();
+                if (edits.Length != 0) {
+                    var requests = edits.Select(r => proposed[r]).Distinct(StringComparer.Ordinal).ToArray();
+                    if (edits.Length != rows.Length || requests.Length != 1) { result.Errors.Add(new(null, null, "Contract family edits must be atomic.")); continue; }
+                    var used = new HashSet<string>(family.Methods.Select(m => m.Module).Distinct().SelectMany(Reserved), StringComparer.Ordinal);
+                    foreach (var module in family.Methods.Select(m => m.Module).Distinct()) {
+                        var moduleRow = moduleRows[Resolve(directory, Relative(module))];
+                        used.UnionWith(moduleRow.Elements().Where(r => !rows.Contains(r)).Select(r => proposed.TryGetValue(r, out var name) ? name : (string)r.Attribute("NewName")).Where(n => n != null));
+                        used.UnionWith(moduleRow.Descendants("Parameter").Select(r => parameterProposals.TryGetValue(r, out var name) ? name : (string)r.Attribute("NewName")).Where(n => n != null));
+                    }
+                    string requested = requests[0], applied = requested; int suffix = 2;
+                    while (!used.Add(applied)) applied = requested + suffix++.ToString(CultureInfo.InvariantCulture);
+                    foreach (var row in rows) {
+                        result.Changes.Add(new((string)row.Parent.Attribute("Path"), (string)row.Attribute("Token"), (string)row.Attribute("NewName"), requested, applied) { Kind = "ContractMethod" });
+                        row.SetAttributeValue("NewName", applied); proposed.Remove(row);
+                    }
+                }
+                if (rows.Any(r => r.Attribute("NewName") == null) || rows.Select(r => (string)r.Attribute("NewName")).Distinct(StringComparer.Ordinal).Count() != 1)
+                    result.Errors.Add(new(null, null, "Contract family aliases differ."));
+            }
             foreach (var pair in moduleRows) {
                 var module = loaded[pair.Key]; var moduleRow = pair.Value;
                 string relative = (string)moduleRow.Attribute("Path");
                 var tokens = new HashSet<uint>();
                 var used = Reserved(module);
                 var parameterAliases = new HashSet<string>(StringComparer.Ordinal);
+                var sharedNames = new Dictionary<string, string>(StringComparer.Ordinal);
                 foreach (var row in moduleRow.Elements()) {
                     try {
                         uint token = Token((string)row.Attribute("Token"));
@@ -176,12 +243,13 @@ public static class ReviewMapUpdate {
                         if (row.Name == "Type") {
                             if (member is not TypeDef t || t.IsGlobalModuleType || t.HasGenericParameters || row.HasElements) throw new InvalidDataException("Unsupported type alias.");
                         } else if (row.Name == "Method") {
-                            if (member is not MethodDef method || MethodReview.Blocker(method) != null) throw new InvalidDataException("Unsupported method alias.");
+                            if (member is not MethodDef method || (contractRows.ContainsKey(method) ? MethodContractFamilies.MethodBlocker(method) : MethodReview.Blocker(method)) != null) throw new InvalidDataException("Unsupported method alias.");
                             var positions = new HashSet<int>();
                             var paramsUsed = new HashSet<string>(method.Parameters.Select(p => p.Name), StringComparer.Ordinal);
                             paramsUsed.UnionWith(method.GenericParameters.Select(p => p.Name.String));
                             for (var type = method.DeclaringType; type != null; type = type.DeclaringType) paramsUsed.UnionWith(type.GenericParameters.Select(p => p.Name.String));
                             var originalParameterNames = new HashSet<string>(paramsUsed, StringComparer.Ordinal);
+                            paramsUsed.UnionWith(moduleRow.Elements().Where(r => !proposed.ContainsKey(r)).Select(r => (string)r.Attribute("NewName")).Where(n => n != null));
                             // Unchanged aliases retain their names. Reserve all requested
                             // names before repairing collisions so one edit cannot steal another.
                             foreach (var p in row.Elements().Where(p => !parameterProposals.ContainsKey(p))) {
@@ -207,7 +275,9 @@ public static class ReviewMapUpdate {
                         } else throw new InvalidDataException("Expected Type or Method row.");
                         if (!proposed.ContainsKey(row)) {
                             string alias = (string)row.Attribute("NewName");
-                            if (alias != null && (!Identifier(alias) || !used.Add(alias))) throw new InvalidDataException("Invalid/colliding existing alias: " + alias);
+                            string family = (string)row.Attribute("ContractFamily");
+                            if (alias != null && (!Identifier(alias) || !used.Add(alias) && (family == null || !sharedNames.TryGetValue(alias, out var previous) || previous != family))) throw new InvalidDataException("Invalid/colliding existing alias: " + alias);
+                            if (alias != null && family != null) sharedNames[alias] = family;
                             if (alias == null && !row.HasElements) throw new InvalidDataException("Empty alias row.");
                         }
                     } catch (Exception e) { result.Errors.Add(new(relative, (string)row.Attribute("Token"), e.Message)); }

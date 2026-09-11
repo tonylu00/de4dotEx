@@ -129,6 +129,46 @@ XML editing is required, and validation failure publishes no partial map.
 These are source aliases: dnSpy's restoration build target must run to retain
 the original binary names and SDK contracts.
 
+## Rename complete interface and virtual method families
+
+Use the metadata graph when a name belongs to an implicit interface contract or
+virtual override chain:
+
+```text
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --review-families ./restored ./families.json
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --update-map ./reviewed-families.json ./base-names.xml ./family-names.xml ./family-report.json
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --check-map ./family-names.xml ./family-check.json
+```
+
+Review the bodies and call sites, then set `NewName` on one member of an eligible
+family. The updater finds every declaration, implementation and override from
+the actual assemblies and applies one alias atomically. You can keep only the
+selected seed rows in the JSON; removing other members cannot create a partial
+rename. Conflicting proposals for the same family fail without publishing a map.
+Name collisions receive one shared suffix across all affected modules.
+
+`ContractFamily` identifies a sorted set of physical module paths and method
+tokens. Every seed is also checked against its hash, MVID, identity, original
+name and signature. Generic interface/base arguments are substituted when
+matching signatures; overloads remain distinct. Duplicate assembly identities
+are resolved in their physical context, and ambiguous dependencies are blocked.
+Supply the complete application tree for discovery and export. dnSpy independently
+recomputes the graph and rejects stale or incomplete family maps before export.
+
+`ParameterNames[].NewName` edits apply to the individual method row, because
+parameter metadata names are independent across declarations. Include each
+implementation row whose parameters you want to name. Existing family aliases
+can be retained while updating only their parameters.
+
+The inventory includes readable names as well as likely obfuscated names.
+`MappingBlocker` reports constructors, accessors, native/runtime methods, explicit
+`MethodImpl` declarations, static virtual contracts and unresolved external
+contracts that this workflow cannot yet rename. These entries remain available
+for review, but editing the blocker field cannot make them eligible. Use the JSON
+updater for family edits; `--merge-map` accepts ordinary generated method maps.
+The portable metadata regression covers duplicate physical identities, generic
+substitution, inherited implementations, overloads, overrides and invalid maps.
+
 ## Cross-version matching
 
 Build and run this read-only helper with .NET 8 or newer:

@@ -28,6 +28,7 @@ public static class MethodReview {
         public string Reason { get; set; }
         public bool NeedsReadableName { get; set; }
         public string MappingBlocker { get; set; }
+        public string ContractFamily { get; set; }
         public string[] Parameters { get; set; }
         public ParameterEdit[] ParameterNames { get; set; } = Array.Empty<ParameterEdit>();
         public string NewName { get; set; } = "";
@@ -52,12 +53,12 @@ public static class MethodReview {
     }
     internal static string Blocker(MethodDef m) {
         if (m.IsConstructor) return "constructor";
-        if (m.IsVirtual || m.HasOverrides) return "virtual-or-override: requires contract-family source-map support";
+        if (m.IsVirtual || m.HasOverrides) return "virtual-or-override: use --review-families for complete contract review";
         if (m.IsSpecialName || m.IsRuntimeSpecialName) return "accessor-or-special-name";
         if (m.IsPinvokeImpl || m.IsRuntime) return "native-or-runtime-method";
         return null;
     }
-    static IEnumerable<string> Files(string path) {
+    internal static IEnumerable<string> Files(string path) {
         if ((File.GetAttributes(path) & System.IO.FileAttributes.ReparsePoint) != 0)
             throw new IOException("Linked input is not supported: " + path);
         if (File.Exists(path)) { yield return path; yield break; }
@@ -112,12 +113,12 @@ public static class MethodReview {
         if (onlyObfuscated) inventory.Methods = inventory.Methods.Where(m => m.NeedsReadableName).ToList();
         using var stream = new FileStream(output, FileMode.CreateNew, FileAccess.Write);
         JsonSerializer.Serialize(stream, inventory, new JsonSerializerOptions { WriteIndented = true });
-        Console.WriteLine(typesOnly ? $"Inventoried {inventory.Types.Count} types; {inventory.Types.Count(t => t.MappingBlocker != null)} require unsupported source-map contracts." : $"Inventoried {total} methods; wrote {inventory.Methods.Count}; {inventory.Methods.Count(m => m.NeedsReadableName)} need review; {inventory.Methods.Count(m => m.NeedsReadableName && m.MappingBlocker != null)} require unsupported source-map contracts.");
+        Console.WriteLine(typesOnly ? $"Inventoried {inventory.Types.Count} types; {inventory.Types.Count(t => t.MappingBlocker != null)} require unsupported source-map contracts." : $"Inventoried {total} methods; wrote {inventory.Methods.Count}; {inventory.Methods.Count(m => m.NeedsReadableName)} need review; {inventory.Methods.Count(m => m.NeedsReadableName && m.MappingBlocker != null)} require contract-family or special-contract review.");
     }
     public static void WriteMap(string input, string targetRoot, string output) {
         var inventory = JsonSerializer.Deserialize<Inventory>(File.ReadAllText(input));
         if (inventory?.Format != 1 || inventory.Kind != "MethodReview" && inventory.Kind != "SymbolReview") throw new InvalidDataException("Expected a method or symbol review inventory.");
-        if (inventory.Types.Any(t => !string.IsNullOrWhiteSpace(t.NewName)) || inventory.Methods.Any(m => m.ParameterNames.Any(p => !string.IsNullOrWhiteSpace(p.NewName)))) {
+        if (inventory.Types.Any(t => !string.IsNullOrWhiteSpace(t.NewName)) || inventory.Methods.Any(m => m.ContractFamily != null || m.ParameterNames.Any(p => !string.IsNullOrWhiteSpace(p.NewName)))) {
             string basePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".xml");
             string reportPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
             try {
