@@ -145,7 +145,8 @@ public static class ReviewMapUpdate {
                     } catch (Exception e) { result.Errors.Add(new(seed.Module, seed.Token, e.Message)); }
                 }
                 var seen = new HashSet<string>(InputPaths.Comparer);
-                var edits = inventory.Methods.Select(e => (Entry: e, Kind: "Method")).Concat(inventory.Types.Select(e => (Entry: e, Kind: "Type")));
+                var edits = inventory.Methods.Select(e => (Entry: e, Kind: "Method")).Concat(inventory.Types.Select(e => (Entry: e, Kind: "Type")))
+                    .Concat(inventory.Fields.Select(e => (Entry: e, Kind: "Field")));
                 foreach (var item in edits.Where(e => !string.IsNullOrWhiteSpace(e.Entry.NewName) || e.Entry.ParameterNames.Any(p => !string.IsNullOrWhiteSpace(p.NewName)))) {
                     var edit = item.Entry;
                     try {
@@ -158,6 +159,9 @@ public static class ReviewMapUpdate {
                         var method = member as MethodDef;
                         if (item.Kind == "Type") {
                             if (member is not TypeDef t || t.IsGlobalModuleType || t.HasGenericParameters || edit.ParameterNames.Any(p => !string.IsNullOrWhiteSpace(p.NewName))) throw new InvalidDataException("Unsupported type alias.");
+                        } else if (item.Kind == "Field") {
+                            if (member is not FieldDef field || FieldAliasScope.Blocker(field) != null || edit.ContractFamily != null || edit.ParameterNames.Length != 0)
+                                throw new InvalidDataException("Unsupported field alias: " + (member is FieldDef f ? FieldAliasScope.Blocker(f) : "expected field token"));
                         } else {
                             if (method == null) throw new InvalidDataException("Expected a method token.");
                             string blocker = edit.ContractFamily == null ? MethodReview.Blocker(method) : MethodContractFamilies.MethodBlocker(method);
@@ -249,7 +253,7 @@ public static class ReviewMapUpdate {
                             paramsUsed.UnionWith(method.GenericParameters.Select(p => p.Name.String));
                             for (var type = method.DeclaringType; type != null; type = type.DeclaringType) paramsUsed.UnionWith(type.GenericParameters.Select(p => p.Name.String));
                             var originalParameterNames = new HashSet<string>(paramsUsed, StringComparer.Ordinal);
-                            paramsUsed.UnionWith(moduleRow.Elements().Where(r => !proposed.ContainsKey(r)).Select(r => (string)r.Attribute("NewName")).Where(n => n != null));
+                            paramsUsed.UnionWith(moduleRow.Elements().Where(r => r.Name != "Field" && !proposed.ContainsKey(r)).Select(r => (string)r.Attribute("NewName")).Where(n => n != null));
                             // Unchanged aliases retain their names. Reserve all requested
                             // names before repairing collisions so one edit cannot steal another.
                             foreach (var p in row.Elements().Where(p => !parameterProposals.ContainsKey(p))) {
@@ -272,7 +276,12 @@ public static class ReviewMapUpdate {
                                     throw new InvalidDataException("Invalid/colliding parameter alias at sequence " + sequence);
                                 parameterAliases.Add(alias);
                             }
-                        } else throw new InvalidDataException("Expected Type or Method row.");
+                        } else if (row.Name == "Field") {
+                            if (member is not FieldDef field || FieldAliasScope.Blocker(field) != null || row.HasElements || row.Attribute("ContractFamily") != null)
+                                throw new InvalidDataException("Unsupported field alias.");
+                            if (!proposed.ContainsKey(row) && !Identifier((string)row.Attribute("NewName"))) throw new InvalidDataException("Invalid field alias.");
+                        } else throw new InvalidDataException("Expected Type, Method or Field row.");
+                        if (row.Name == "Field") continue; // Owner-scoped validation follows module-wide method/type allocation.
                         if (!proposed.ContainsKey(row)) {
                             string alias = (string)row.Attribute("NewName");
                             string family = (string)row.Attribute("ContractFamily");
@@ -283,17 +292,46 @@ public static class ReviewMapUpdate {
                     } catch (Exception e) { result.Errors.Add(new(relative, (string)row.Attribute("Token"), e.Message)); }
                 }
                 foreach (string alias in parameterAliases) {
-                    if (moduleRow.Elements().Any(r => !proposed.ContainsKey(r) && (string)r.Attribute("NewName") == alias)) result.Errors.Add(new(relative, null, "Parameter/member alias collision: " + alias));
+                    if (moduleRow.Elements().Any(r => r.Name != "Field" && !proposed.ContainsKey(r) && (string)r.Attribute("NewName") == alias)) result.Errors.Add(new(relative, null, "Parameter/member alias collision: " + alias));
                     used.Add(alias);
                 }
                 var suggestions = new HashSet<string>(proposed.Where(p => p.Key.Parent == moduleRow).Select(p => p.Value), StringComparer.Ordinal);
-                foreach (var edit in proposed.Where(p => p.Key.Parent == moduleRow).OrderBy(p => Token((string)p.Key.Attribute("Token")))) {
+                foreach (var edit in proposed.Where(p => p.Key.Parent == moduleRow && p.Key.Name != "Field").OrderBy(p => Token((string)p.Key.Attribute("Token")))) {
                     string name = edit.Value;
                     int suffix = 2;
                     if (!used.Add(name)) do { name = edit.Value + suffix++.ToString(CultureInfo.InvariantCulture); } while (suggestions.Contains(name) || !used.Add(name));
                     result.Changes.Add(new(relative, (string)edit.Key.Attribute("Token"), (string)edit.Key.Attribute("NewName"), edit.Value, name) { Kind = edit.Key.Name.LocalName });
                     edit.Key.SetAttributeValue("NewName", name);
                 }
+            }
+            if (result.Errors.Count == 0 && moduleRows.Values.Any(r => r.Elements("Field").Any())) {
+                // Load the complete input tree for inherited/derived reservations.
+                // Same-identity compatibility copies remain distinct metadata objects.
+                foreach (string file in FamilyReview.Files(directory)) {
+                    try { Load(InputPaths.Relative(directory, file)); } catch (BadImageFormatException) { }
+                }
+                var scope = new FieldAliasScope(loaded.Values);
+                var aliases = new Dictionary<IMemberDef, string>();
+                var fields = new Dictionary<FieldDef, XElement>();
+                foreach (var pair in moduleRows) foreach (var row in pair.Value.Elements()) {
+                    var member = (IMemberDef)loaded[pair.Key].ResolveToken(Token((string)row.Attribute("Token")));
+                    if (member is FieldDef field) fields.Add(field, row);
+                    if (row.Attribute("NewName") != null && !(member is FieldDef && proposed.ContainsKey(row))) aliases[member] = (string)row.Attribute("NewName");
+                }
+                string Alias(IMemberDef member) => aliases.TryGetValue(member, out var name) ? name : null;
+                foreach (var pair in fields.OrderBy(p => Relative(p.Key.Module), StringComparer.Ordinal).ThenBy(p => p.Key.MDToken.Raw)) {
+                    var row = pair.Value;
+                    if (!proposed.TryGetValue(row, out string requested)) continue;
+                    var used = scope.Reserved(pair.Key, Alias);
+                    var relatedTypes = scope.Types(pair.Key);
+                    var suggestions = new HashSet<string>(fields.Where(p => relatedTypes.Contains(p.Key.DeclaringType) && proposed.ContainsKey(p.Value)).Select(p => proposed[p.Value]), StringComparer.Ordinal);
+                    string name = requested; int suffix = 2;
+                    if (used.Contains(name)) do { name = requested + suffix++.ToString(CultureInfo.InvariantCulture); } while (used.Contains(name) || suggestions.Contains(name));
+                    result.Changes.Add(new(Relative(pair.Key.Module), (string)row.Attribute("Token"), (string)row.Attribute("NewName"), requested, name) { Kind = "Field" });
+                    row.SetAttributeValue("NewName", name); aliases[pair.Key] = name;
+                }
+                foreach (var pair in fields) if (scope.Reserved(pair.Key, Alias).Contains(Alias(pair.Key)))
+                    result.Errors.Add(new(Relative(pair.Key.Module), (string)pair.Value.Attribute("Token"), "Field alias collides in declaration/inheritance scope: " + Alias(pair.Key)));
             }
             result.Success = result.Errors.Count == 0;
         } catch (Exception e) { result.Errors.Add(new(null, null, e.Message)); }

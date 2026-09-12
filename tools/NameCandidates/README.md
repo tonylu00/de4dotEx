@@ -96,8 +96,9 @@ dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --merge-map ./
 ```
 
 `--update-map` validates the exact module snapshots, replaces accepted symbol
-aliases by physical module/token, retains untouched type/method/parameter rows,
-and repairs requested-name collisions against the entire merged module. Its
+aliases by physical module/token, retains untouched type/method/field/parameter rows,
+and repairs requested-name collisions. Methods/types reserve their whole module;
+fields use declaration and inheritance scopes. Its
 report records `Kind`, `Before`, `Requested`, and `Applied` names, plus
 `ParameterSequence` for parameter edits. It collects per-entry
 errors with module/token identifiers, including stale identities, unsupported
@@ -114,6 +115,29 @@ parameter rows stay in the base map. The generated proposal map may contain
 method renames only; unsupported proposal row kinds are rejected explicitly.
 
 ## Review types and parameters
+
+Fields use the same guarded workflow:
+
+```text
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --review-fields ./restored ./fields.json
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --update-map ./reviewed-fields.json ./base-names.xml ./with-fields.xml ./field-report.json
+```
+
+Edit `Fields[].NewName` after reviewing uses. Unrelated classes can both use
+`logger` or `cache`; inherited and same-class collisions receive reported suffixes.
+The updater reserves original names too, preventing ambiguous alias swaps.
+Ambiguous compatibility assemblies contribute conservative name reservations;
+they are never merged or selected as a reference target by name alone. Ordinary
+instance/static/readonly fields and enum literals are supported. Runtime special
+fields (including enum `value__`), global fields and fields with special storage
+restoration requirements remain explicit blockers. Parameters may share a field
+alias, as in the ordinary `this.logger = logger` pattern.
+
+These rows require dnSpy's field-aware source-map exporter. Runtime name
+restoration remains owner-qualified. Windows metadata regressions cover ordinary
+and inherited generic scopes, physical compatibility copies, enum literals,
+stale identity rejection and transactional publication. Cross-platform execution
+of these new field cases has not been verified locally.
 
 Type discovery and editing also use the portable executable:
 

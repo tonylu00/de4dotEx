@@ -24,6 +24,7 @@ public static class Program {
                     "  --review <assembly-or-tree> <new-all-methods.json>\n" +
                     "  --review-obfuscated <assembly-or-tree> <new-worklist.json>\n" +
                     "  --review-types <assembly-or-tree> <new-type-review.json>\n" +
+                    "  --review-fields <assembly-or-tree> <new-field-review.json>\n" +
                     "  --review-families <assembly-or-tree> <new-contract-review.json>\n" +
                     "  --review-map <reviewed.json> <input-tree> <new-source-map.xml>\n" +
                     "  --update-map <reviewed.json> <base-map.xml> <new-map.xml> <new-report.json>\n" +
@@ -31,7 +32,7 @@ public static class Program {
                     "  --check-map <map.xml> <new-report.json>\n" +
                     "  [--reference-source-map map.xml] <reference-tree> <target-tree> <new-candidates.json>\n" +
                     "  --source-map <selected-candidates.json> <target-tree> <new-source-map.xml>\n" +
-                    "Edit NewName on Methods, Types or ParameterNames entries in a review inventory. MappingBlocker describes unsupported source contracts. Inputs are never executed or modified.");
+                    "Edit NewName on Methods, Types, Fields or ParameterNames entries in a review inventory. MappingBlocker describes unsupported source contracts. Inputs are never executed or modified.");
                 return 0;
             }
             if (args.Length == 3 && (args[0] == "--review" || args[0] == "--review-obfuscated")) {
@@ -40,6 +41,10 @@ public static class Program {
             }
             if (args.Length == 3 && args[0] == "--review-types") {
                 MethodReview.Write(args[1], args[2], typesOnly: true);
+                return 0;
+            }
+            if (args.Length == 3 && args[0] == "--review-fields") {
+                MethodReview.Write(args[1], args[2], fieldsOnly: true);
                 return 0;
             }
             if (args.Length == 3 && args[0] == "--review-families") {

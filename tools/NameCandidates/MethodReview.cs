@@ -14,6 +14,7 @@ public static class MethodReview {
         public string TargetRoot { get; set; }
         public List<Entry> Methods { get; set; } = new();
         public List<Entry> Types { get; set; } = new();
+        public List<Entry> Fields { get; set; } = new();
         public List<Skip> Skips { get; set; } = new();
     }
     public sealed class Entry {
@@ -74,10 +75,11 @@ public static class MethodReview {
         foreach (string child in Directory.EnumerateFileSystemEntries(path).OrderBy(p => p, StringComparer.Ordinal))
             foreach (string file in Files(child)) yield return file;
     }
-    public static Inventory Scan(string input, bool typesOnly = false) {
+    public static Inventory Scan(string input, bool typesOnly = false, bool fieldsOnly = false) {
+        if (typesOnly && fieldsOnly) throw new ArgumentException("Choose one inventory kind.");
         input = Path.GetFullPath(input);
         string root = File.Exists(input) ? Path.GetDirectoryName(input) : Path.TrimEndingDirectorySeparator(input);
-        var result = new Inventory { TargetRoot = root, Kind = typesOnly ? "SymbolReview" : "MethodReview" };
+        var result = new Inventory { TargetRoot = root, Kind = typesOnly || fieldsOnly ? "SymbolReview" : "MethodReview" };
         foreach (string file in Files(input).Where(p => Path.GetExtension(p).Equals(".dll", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(p).Equals(".exe", StringComparison.OrdinalIgnoreCase))) {
             string relative = InputPaths.Relative(root, file);
             byte[] bytes = File.ReadAllBytes(file);
@@ -86,6 +88,15 @@ public static class MethodReview {
             catch (BadImageFormatException) { result.Skips.Add(new Skip(relative, "non-managed input")); continue; }
             using (module) {
                 string hash = Convert.ToHexString(SHA256.HashData(bytes));
+                if (fieldsOnly) {
+                    foreach (var field in module.GetTypes().SelectMany(t => t.Fields)) result.Fields.Add(new Entry {
+                        Module = relative, Identity = module.Assembly?.FullName, Mvid = module.Mvid.ToString(), Sha256 = hash,
+                        Type = field.DeclaringType.FullName, Token = "0x" + field.MDToken.Raw.ToString("X8"), Signature = field.FullName,
+                        OriginalName = field.Name, Reason = Reason(field.Name), NeedsReadableName = Reason(field.Name) != null,
+                        MappingBlocker = SourceNameMapping.FieldAliasScope.Blocker(field), Parameters = Array.Empty<string>()
+                    });
+                    continue;
+                }
                 if (typesOnly) {
                     foreach (var type in module.GetTypes()) result.Types.Add(new Entry {
                         Module = relative, Identity = module.Assembly?.FullName, Mvid = module.Mvid.ToString(), Sha256 = hash,
@@ -115,19 +126,20 @@ public static class MethodReview {
         }
         return result;
     }
-    public static void Write(string input, string output, bool onlyObfuscated = false, bool typesOnly = false) {
+    public static void Write(string input, string output, bool onlyObfuscated = false, bool typesOnly = false, bool fieldsOnly = false) {
         if (File.Exists(output)) throw new IOException("Choose a new review output file.");
-        var inventory = Scan(input, typesOnly);
+        var inventory = Scan(input, typesOnly, fieldsOnly);
         int total = inventory.Methods.Count;
         if (onlyObfuscated) inventory.Methods = inventory.Methods.Where(m => m.NeedsReadableName).ToList();
         using var stream = new FileStream(output, FileMode.CreateNew, FileAccess.Write);
         JsonSerializer.Serialize(stream, inventory, new JsonSerializerOptions { WriteIndented = true });
+        if (fieldsOnly) { Console.WriteLine($"Inventoried {inventory.Fields.Count} fields; {inventory.Fields.Count(f => f.MappingBlocker != null)} have storage or runtime contracts requiring separate review."); return; }
         Console.WriteLine(typesOnly ? $"Inventoried {inventory.Types.Count} types; {inventory.Types.Count(t => t.MappingBlocker != null)} require unsupported source-map contracts." : $"Inventoried {total} methods; wrote {inventory.Methods.Count}; {inventory.Methods.Count(m => m.NeedsReadableName)} need review; {inventory.Methods.Count(m => m.NeedsReadableName && m.MappingBlocker != null)} require contract-family or special-contract review.");
     }
     public static void WriteMap(string input, string targetRoot, string output) {
         var inventory = JsonSerializer.Deserialize<Inventory>(File.ReadAllText(input));
         if (inventory?.Format != 1 || inventory.Kind != "MethodReview" && inventory.Kind != "SymbolReview") throw new InvalidDataException("Expected a method or symbol review inventory.");
-        if (inventory.Types.Any(t => !string.IsNullOrWhiteSpace(t.NewName)) || inventory.Methods.Any(m => m.ContractFamily != null || m.ParameterNames.Any(p => !string.IsNullOrWhiteSpace(p.NewName)))) {
+        if (inventory.Types.Concat(inventory.Fields).Any(t => !string.IsNullOrWhiteSpace(t.NewName)) || inventory.Methods.Any(m => m.ContractFamily != null || m.ParameterNames.Any(p => !string.IsNullOrWhiteSpace(p.NewName)))) {
             string basePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".xml");
             string reportPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
             try {

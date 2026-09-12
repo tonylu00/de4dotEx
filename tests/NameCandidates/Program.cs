@@ -160,3 +160,4 @@ ReviewUpdateFixture.Run(root, reviewRoot, reviewMap);
 SymbolReviewFixture.Run(root, reviewRoot, reviewMap);
 ContractFamilyFixture.Run(root);
 OrphanSpecialNameFixture.Run(root);
+FieldReviewFixture.Run(root);
