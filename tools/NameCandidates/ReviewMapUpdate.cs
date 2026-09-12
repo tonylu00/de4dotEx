@@ -191,12 +191,25 @@ public static class ReviewMapUpdate {
                             var existing = row.Elements("Parameter").Where(e => (int)e.Attribute("Sequence") == p.Sequence).ToArray();
                             if (existing.Length > 1) throw new InvalidDataException("Duplicate base-map parameter.");
                             var parameter = existing.SingleOrDefault();
+                            // Keeping or restoring the metadata name is not a collision
+                            // with itself. Remove any source override rather than
+                            // manufacturing title2/count2 for an unchanged name.
+                            if (p.NewName == definition.Name) {
+                                result.Changes.Add(new(edit.Module, (string)row.Attribute("Token"),
+                                    (string)parameter?.Attribute("NewName"), p.NewName, definition.Name) {
+                                    Kind = "Parameter", ParameterSequence = p.Sequence
+                                });
+                                parameter?.Remove();
+                                continue;
+                            }
                             if (parameter == null) {
                                 parameter = new XElement("Parameter", new XAttribute("Sequence", p.Sequence), new XAttribute("ExpectedName", definition.Name));
                                 row.Add(parameter);
                             }
                             parameterProposals.Add(parameter, p.NewName);
                         }
+                        if (!rename && row.Attribute("NewName") == null && !row.HasElements)
+                            row.Remove();
                     } catch (Exception e) { result.Errors.Add(new(edit.Module, edit.Token, e.Message)); }
                 }
             }

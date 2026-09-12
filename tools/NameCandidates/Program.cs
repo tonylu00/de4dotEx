@@ -13,6 +13,10 @@ namespace De4dot.NameCandidates;
 public static class Program {
     public static int Main(string[] args) {
         try {
+            if (args.Length >= 3 && args[0] == "--inspect-methods") {
+                MethodBodyInspection.Write(args[1], args.Skip(2));
+                return 0;
+            }
             if (args.Length == 5 && args[0] == "--update-map")
                 return ReviewMapUpdate.Run(args[1], args[2], args[3], args[4]) ? 0 : 1;
             if (args.Length == 5 && args[0] == "--merge-map")
@@ -25,6 +29,7 @@ public static class Program {
                     "  --review-obfuscated <assembly-or-tree> <new-worklist.json>\n" +
                     "  --review-types <assembly-or-tree> <new-type-review.json>\n" +
                     "  --review-fields <assembly-or-tree> <new-field-review.json>\n" +
+                    "  --inspect-methods <assembly> <method-token> [method-token ...]\n" +
                     "  --suggest-property-fields <input-tree> <base-map.xml> <new-field-review.json>\n" +
                     "  --suggest-field-accessors <input-tree> <base-map.xml> <new-method-review.json>\n" +
                     "  --review-families <assembly-or-tree> <new-contract-review.json>\n" +

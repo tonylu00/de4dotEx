@@ -25,12 +25,20 @@ static class SymbolReviewFixture {
         Require(ReviewMapUpdate.Run(review, basePath, output, Path.Combine(root, "symbols-result.json")), "Mixed edit failed");
         var mapped = XDocument.Load(output);
         Require((string)mapped.Descendants("Type").Single().Attribute("NewName") == "itemCount", "Type alias did not reuse a replaced parameter alias");
-        Require((string)mapped.Descendants("Parameter").Single().Attribute("NewName") == "count2", "Parameter collision was not repaired");
+        Require(!mapped.Descendants("Parameter").Any(), "Restoring the original parameter name must remove the override, not produce count2");
         Require((string)mapped.Descendants("Method").Single().Attribute("NewName") == (string)doc.Descendants("Method").Single().Attribute("NewName"), "Parameter-only edit changed method name");
         Require(ReviewMapUpdate.Run(null, output, null, Path.Combine(root, "symbols-check.json")), "Mixed map preflight failed");
         string fromReview = Path.Combine(root, "symbols-standalone.xml");
         MethodReview.WriteMap(review, inputs, fromReview);
-        Require(XDocument.Load(fromReview).Descendants("Type").Count() == 1 && XDocument.Load(fromReview).Descendants("Parameter").Count() == 1, "Review-map discarded non-method edits");
+        Require(XDocument.Load(fromReview).Descendants("Type").Count() == 1 && !XDocument.Load(fromReview).Descendants("Method").Any(), "An unchanged parameter must not create an empty method map row");
+        // A collision with a different mapped member still needs allocation.
+        method.ParameterNames.Single().NewName = "itemCount";
+        File.WriteAllText(review, JsonSerializer.Serialize(inventory));
+        string collision = Path.Combine(root, "symbols-parameter-collision.xml");
+        Require(ReviewMapUpdate.Run(review, output, collision, Path.Combine(root, "symbols-parameter-collision.json")), "Genuine parameter/member collision failed");
+        var colliding = XDocument.Load(collision);
+        Require((string)colliding.Descendants("Parameter").Single().Attribute("NewName") != (string)colliding.Descendants("Type").Single().Attribute("NewName"), "Genuine parameter/member collision was accepted");
+        method.ParameterNames.Single().NewName = "count";
         method.ParameterNames.Single().Sequence = 99;
         var global = types.Types.Single(t => t.MappingBlocker == "global-module-type");
         global.NewName = "ModuleAlias"; inventory.Types.Add(global);
@@ -40,6 +48,6 @@ static class SymbolReviewFixture {
         using var report = JsonDocument.Parse(File.ReadAllText(errors));
         Require(report.RootElement.GetProperty("Errors").GetArrayLength() == 2, "Symbol preflight did not aggregate errors");
         Require(File.ReadAllText(basePath) == original, "Base map changed");
-        Console.WriteLine("PASS editable type and parameter inventories, mixed/parameter-only maps, collision repair, stale sequences, unsupported types, aggregate errors and no partial output.");
+        Console.WriteLine("PASS original parameter preservation/restoration, genuine collision repair, mixed/parameter-only maps, stale sequences, unsupported types, aggregate errors and no partial output.");
     }
 }

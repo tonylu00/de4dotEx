@@ -84,6 +84,7 @@ Console.WriteLine("PASS guarded source-map conversion, collision suffixes, stale
 CallGraphFixture.Run(root);
 PropertyFieldFixture.Run(root);
 FieldAccessorFixture.Run(root);
+MethodBodyInspectionFixture.Run(root);
 TypeCorrespondenceFixture.Run(root);
 var seed = report.Candidates.First(c => c.Module.Replace('\\', '/') == "host/Library.dll");
 string referenceMapPath = Path.Combine(root, "reference-names.xml");

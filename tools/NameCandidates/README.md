@@ -116,6 +116,18 @@ method renames only; unsupported proposal row kinds are rejected explicitly.
 
 ## Review types and parameters
 
+For ambiguous decompiled expressions, inspect original instructions directly:
+
+```text
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --inspect-methods ./restored/Component.dll 0x06000042 0x06000043
+```
+
+The JSON output includes the physical module hash/MVID, signatures, argument
+indices, locals, instruction offsets and operands, branch targets and exception
+regions. It distinguishes captured-field loads from parameter loads without
+executing the assembly. A method token is required; other token kinds fail.
+This is evidence for naming and source-binding review, not an IL rewrite.
+
 To discover field roles already established by readable property getters:
 
 ```text
@@ -199,6 +211,9 @@ To name parameters, start with `--review` or `--review-obfuscated`, and set
 `ParameterNames[].NewName` on the selected method. Leave the method's own
 `NewName` empty to preserve its current alias. Parameter edits require an actual
 metadata parameter at the recorded sequence and a matching original name.
+Requesting the original metadata name preserves it without a suffix and removes
+any previous parameter override. Parameter-only no-op requests create no empty
+method row. This also permits restoring a name after an earlier source rename.
 Unsupported method contracts remain blocked even for parameter-only edits.
 Untouched parameter aliases are retained, and collisions with other parameters
 or enclosing generic names receive reported suffixes.
