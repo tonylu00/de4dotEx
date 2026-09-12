@@ -118,6 +118,14 @@ foreach (string name in new[] { "a", "b", "c_1", "d_12", "acv", "Q", "method_12"
 foreach (string name in new[] { "Load", "Map", "On", "Save", "Get", "Set", "IsDeviceTesterLicensed", "Save_1", "ToMetricKey" })
     Require(MethodReview.Reason(name) == null, "Review preserves " + name);
 Require(MethodReview.Reason("ETS", new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ETS" }) == null, "Review learned acronym");
+foreach (string name in new[] { "jn7oUifpKYO", "qxMoUcH04cb", "l5poUvKFq0o" }) {
+    Require(MethodReview.Reason(name) == "mixed-alphanumeric-review-candidate", "Review Reactor name " + name);
+    Require(MethodReview.Reason("Example." + name + "_2") == "mixed-alphanumeric-review-candidate", "Review qualified Reactor collision " + name);
+    Require(de4dot.code.renamer.MethodNameAnalysis.Analyze(name) == de4dot.code.renamer.MethodNameAnalysis.Assessment.Unknown, "Automatic rename classification unchanged " + name);
+}
+foreach (string name in new[] { "IsIPv6Only", "GetIPv6Only", "CalculateBlake2Hash", "SHA256Managed", "X509Certificate2UI", "VB6GetObject", "D3D11On12" })
+    Require(MethodReview.Reason(name) == null, "Review preserves numeric API " + name);
+Require(MethodReview.Reason("qxMoUcH04cb", new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Uc" }) == null, "Review preserves learned fragment");
 string reviewRoot = Path.Combine(root, "review");
 Directory.CreateDirectory(reviewRoot);
 using (var module = new ModuleDefUser("Review.dll") { Kind = ModuleKind.Dll }) {

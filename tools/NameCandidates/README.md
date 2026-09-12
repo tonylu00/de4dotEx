@@ -45,6 +45,10 @@ unrecognized names (one to three letters, also `_N` suffixes such as `c_1`) are
 included. Recognized words such as `Map`, `On`, `Load`, `Save`, and corroborated
 project vocabulary are preserved. Unknown longer names remain in the complete
 inventory for agent review even when not positively classified as obfuscated.
+Mixed alphanumeric names with several tiny case fragments, such as Reactor's
+`jn7oUifpKYO`, are also flagged for manual review. Recognized words and learned
+acronyms suppress this additional heuristic. This changes inventory coverage
+only; it does not loosen the automatic binary renamer's conservative rules.
 `ParameterNames` contains editable parameter rows with `Sequence`, `OriginalName`,
 `HasMetadata` and `NewName`. Sequences are actual signature positions, excluding
 `this`. The older `Parameters` strings remain for display; do not edit those to

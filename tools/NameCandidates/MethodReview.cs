@@ -49,6 +49,16 @@ public static class MethodReview {
         if (assessment == MethodNameAnalysis.Assessment.Meaningful) return null;
         if (Regex.IsMatch(stem, @"\A[A-Za-z]{1,3}\z")) return "short-unrecognized-name";
         if (assessment == MethodNameAnalysis.Assessment.Obfuscated) return "lexically-obfuscated";
+        // Reactor commonly emits 11-character names, below the automatic
+        // renamer's conservative threshold. Flag these for human review only.
+        // A recognizable word/acronym anywhere in the name still takes priority.
+        if (stem.Length >= 8 && stem.Length < 24 && stem.All(char.IsLetterOrDigit) &&
+            stem.Any(char.IsDigit) && stem.Count(char.IsUpper) >= 3 && stem.Count(char.IsLower) >= 3) {
+            var fragments = MethodNameAnalysis.Tokenize(stem).Where(t => !t.All(char.IsDigit)).ToArray();
+            if (fragments.Length >= 4 && fragments.Count(t => t.Length <= 2) >= 2 &&
+                !fragments.Any(t => MethodNameAnalysis.Analyze(t, vocabulary) == MethodNameAnalysis.Assessment.Meaningful))
+                return "mixed-alphanumeric-review-candidate";
+        }
         return null;
     }
     internal static string Blocker(MethodDef m) {
