@@ -24,6 +24,8 @@ public static class PropertyFieldReview {
         public List<MethodReview.Entry> Types { get; } = new();
         public List<MethodReview.Entry> Fields { get; } = new();
         public List<Evidence> PropertyEvidence { get; } = new();
+        public List<FieldAccessorReview.Evidence> FieldAccessorEvidence { get; } = new();
+        public string InferenceKind { get; init; } = "PropertyField";
         public List<Skip> Skips { get; } = new();
     }
     static readonly HashSet<string> keywords = new((
@@ -65,7 +67,7 @@ public static class PropertyFieldReview {
             .Concat(owner.Events).Concat(owner.NestedTypes).Any(m => m.Name == name)) name += "Field";
         return name;
     }
-    public static Report Scan(string inputDirectory, string baseMapPath) {
+    public static Report Scan(string inputDirectory, string baseMapPath, bool fieldAccessors = false) {
         string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(inputDirectory));
         if (!Directory.Exists(root)) throw new ArgumentException("Supply the complete input directory, not a single assembly.");
         byte[] mapBytes = File.ReadAllBytes(baseMapPath);
@@ -84,7 +86,8 @@ public static class PropertyFieldReview {
             if (!path.StartsWith(prefix, InputPaths.Comparison)) throw new InvalidDataException("Map module leaves input root.");
             if (!mappedModules.TryAdd(path, row)) throw new InvalidDataException("Duplicate physical module in map.");
         }
-        var report = new Report { TargetRoot = root, BaseMapSha256 = Convert.ToHexString(SHA256.HashData(mapBytes)) };
+        var report = new Report { TargetRoot = root, BaseMapSha256 = Convert.ToHexString(SHA256.HashData(mapBytes)),
+            InferenceKind = fieldAccessors ? "FieldAccessor" : "PropertyField" };
         var visited = new HashSet<string>(InputPaths.Comparer);
         foreach (var path in MethodReview.Files(root).Where(p => Path.GetExtension(p).Equals(".dll", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(p).Equals(".exe", StringComparison.OrdinalIgnoreCase))) {
             string relative = InputPaths.Relative(root, path);
@@ -105,6 +108,10 @@ public static class PropertyFieldReview {
                         if (module.ResolveToken(token) is not FieldDef field || field.Name != (string)row.Attribute("ExpectedName") ||
                             field.FullName != (string)row.Attribute("Signature")) throw new InvalidDataException("Stale mapped field: " + relative);
                     }
+                }
+                if (fieldAccessors) {
+                    FieldAccessorReview.Collect(module, relative, hash, existing, moduleRow, report);
+                    continue;
                 }
                 foreach (var type in module.GetTypes()) {
                     var pairs = type.Properties.Select(p => (Property: p, Field: DirectField(p))).Where(p => p.Field != null).GroupBy(p => p.Field);
@@ -136,11 +143,12 @@ public static class PropertyFieldReview {
         if (mappedModules.Keys.Any(path => !visited.Contains(path))) throw new InvalidDataException("A mapped physical module was missing or could not be read as managed metadata.");
         return report;
     }
-    public static void Write(string inputDirectory, string baseMapPath, string output) {
-        if (File.Exists(output)) throw new IOException("Choose a new property-field review output.");
-        var report = Scan(inputDirectory, baseMapPath);
+    public static void Write(string inputDirectory, string baseMapPath, string output, bool fieldAccessors = false) {
+        if (File.Exists(output)) throw new IOException("Choose a new field/property-access review output.");
+        var report = Scan(inputDirectory, baseMapPath, fieldAccessors);
         using var stream = new FileStream(output, FileMode.CreateNew, FileAccess.Write);
         JsonSerializer.Serialize(stream, report, new JsonSerializerOptions { WriteIndented = true });
-        Console.WriteLine($"Proposed {report.Fields.Count} property-backed field names with getter evidence; {report.Skips.Count} explicit skips. No inputs or maps changed.");
+        Console.WriteLine(fieldAccessors ? $"Proposed {report.Methods.Count} field-access method names with body/alias evidence; {report.Skips.Count} explicit skips. No inputs or maps changed." :
+            $"Proposed {report.Fields.Count} property-backed field names with getter evidence; {report.Skips.Count} explicit skips. No inputs or maps changed.");
     }
 }

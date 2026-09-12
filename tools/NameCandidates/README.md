@@ -142,6 +142,23 @@ Getter-only evidence names the exposed value; it does not infer setter behavior.
 Inputs and the base map remain unchanged. The normal transactional updater and
 later consolidated source/compiler checks still apply.
 
+Reviewed field aliases can also establish names for pure accessor methods:
+
+```text
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --suggest-field-accessors ./restored ./base-names.xml ./field-accessors.json
+```
+
+This proposes `GetProjectName`/`SetProjectName` from a mapped `projectName` field,
+or `IsReady` from a mapped boolean `isReady`. Bodies must contain only the exact
+same-owner field read or assignment and return (apart from nops). Computations,
+virtual/interface contracts, real property/event accessors, generic field
+references and opaque field aliases do not qualify. Existing custom method
+aliases remain unchanged. Setter parameters receive `value` when metadata exists.
+`FieldAccessorEvidence` records the field alias, both signatures and all body
+instructions. The physical map hash is recorded too; same-name/MVID compatibility
+copies keep their own field roles. Use source eligibility review before updating
+the map; dnSpy's `stage_property_fields.py` supports these proposals as well.
+
 Fields use the same guarded workflow:
 
 ```text

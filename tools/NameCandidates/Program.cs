@@ -26,6 +26,7 @@ public static class Program {
                     "  --review-types <assembly-or-tree> <new-type-review.json>\n" +
                     "  --review-fields <assembly-or-tree> <new-field-review.json>\n" +
                     "  --suggest-property-fields <input-tree> <base-map.xml> <new-field-review.json>\n" +
+                    "  --suggest-field-accessors <input-tree> <base-map.xml> <new-method-review.json>\n" +
                     "  --review-families <assembly-or-tree> <new-contract-review.json>\n" +
                     "  --review-map <reviewed.json> <input-tree> <new-source-map.xml>\n" +
                     "  --update-map <reviewed.json> <base-map.xml> <new-map.xml> <new-report.json>\n" +
@@ -50,6 +51,10 @@ public static class Program {
             }
             if (args.Length == 4 && args[0] == "--suggest-property-fields") {
                 PropertyFieldReview.Write(args[1], args[2], args[3]);
+                return 0;
+            }
+            if (args.Length == 4 && args[0] == "--suggest-field-accessors") {
+                PropertyFieldReview.Write(args[1], args[2], args[3], fieldAccessors: true);
                 return 0;
             }
             if (args.Length == 3 && args[0] == "--review-families") {
