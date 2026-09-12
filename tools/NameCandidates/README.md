@@ -226,6 +226,31 @@ the original binary names and SDK contracts.
 
 ## Rename complete interface and virtual method families
 
+Supply external contract metadata explicitly when a missing framework or library
+interface blocks unrelated methods on the same class:
+
+```text
+dotnet NameCandidates.dll --contract-references references.json --review-families input-tree families.json
+dotnet NameCandidates.dll --contract-references references.json --update-map reviewed.json names.xml updated.xml report.json
+dotnet NameCandidates.dll --contract-references references.json --check-map updated.xml check.json
+```
+
+The manifest has `Format: 1` and an `Assemblies` array. Each entry contains `Path`,
+the full assembly `Identity`, `Mvid` and `Sha256`; `--inspect-methods` exposes those
+values without running the assembly. Paths may be relative to the manifest, so a
+reference bundle works on Windows, macOS and Linux. Every hash and identity must
+match. Conflicting explicit references with the same identity are rejected;
+physical compatibility assemblies in the input tree retain their existing scope.
+
+References are read-only metadata dependencies and never become rename targets.
+Their resolution uses exact full assembly identities, without GAC lookup or
+framework-version substitution. For example, resolving `IDisposable` leaves
+`Dispose` protected while allowing an unrelated internal reader contract to be
+reviewed. Missing dependencies still produce blockers. Inventories and reports
+record `ContractReferenceSha256`; an update of such an inventory requires the
+same manifest. Keep supplying the reference manifest for later map preflight
+and updates, and retain it alongside the map's review evidence.
+
 Use the metadata graph when a name belongs to an implicit interface contract or
 virtual override chain:
 

@@ -26,16 +26,17 @@ public static class FamilyReview {
             Sequence = p.MethodSigIndex + 1, OriginalName = p.Name, HasMetadata = p.ParamDef != null
         }).ToArray()
     };
-    public static void Write(string input, string output) {
+    public static void Write(string input, string output, string contractReferences = null) {
         if (File.Exists(output)) throw new IOException("Choose a new family review file.");
         input = Path.GetFullPath(input);
         string root = File.Exists(input) ? Path.GetDirectoryName(input) : Path.TrimEndingDirectorySeparator(input);
         var modules = new Dictionary<ModuleDef, (string Path, string Hash)>();
-        var inventory = new MethodReview.Inventory { Kind = "SymbolReview", TargetRoot = root };
+        using var references = new ContractReferences(contractReferences);
+        var inventory = new MethodReview.Inventory { Kind = "SymbolReview", TargetRoot = root, ContractReferenceSha256 = references.ManifestSha256 };
         try {
             foreach (string file in Files(input)) {
                 byte[] bytes = File.ReadAllBytes(file);
-                try { modules.Add(ModuleDefMD.Load(bytes), (InputPaths.Relative(root, file), Convert.ToHexString(SHA256.HashData(bytes)))); }
+                try { modules.Add(ModuleDefMD.Load(bytes, references.Context), (InputPaths.Relative(root, file), Convert.ToHexString(SHA256.HashData(bytes)))); }
                 catch (BadImageFormatException) { inventory.Skips.Add(new Skip(InputPaths.Relative(root, file), "non-managed input")); }
             }
             var graph = new MethodContractFamilies(modules.Keys, m => modules.TryGetValue(m, out var row) ? row.Path : m.Location);

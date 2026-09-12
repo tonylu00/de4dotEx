@@ -13,16 +13,22 @@ namespace De4dot.NameCandidates;
 public static class Program {
     public static int Main(string[] args) {
         try {
+            string contractReferences = null;
+            if (args.Length >= 2 && args[0] == "--contract-references") {
+                contractReferences = args[1]; args = args.Skip(2).ToArray();
+                if (args.Length == 0 || !new[] { "--review-families", "--update-map", "--merge-map", "--check-map" }.Contains(args[0]))
+                    throw new ArgumentException("Contract references apply to family review and map update/preflight commands.");
+            }
             if (args.Length >= 3 && args[0] == "--inspect-methods") {
                 MethodBodyInspection.Write(args[1], args.Skip(2));
                 return 0;
             }
             if (args.Length == 5 && args[0] == "--update-map")
-                return ReviewMapUpdate.Run(args[1], args[2], args[3], args[4]) ? 0 : 1;
+                return ReviewMapUpdate.Run(args[1], args[2], args[3], args[4], contractReferences: contractReferences) ? 0 : 1;
             if (args.Length == 5 && args[0] == "--merge-map")
-                return ReviewMapUpdate.Run(args[1], args[2], args[3], args[4], true) ? 0 : 1;
+                return ReviewMapUpdate.Run(args[1], args[2], args[3], args[4], true, contractReferences) ? 0 : 1;
             if (args.Length == 3 && args[0] == "--check-map")
-                return ReviewMapUpdate.Run(null, args[1], null, args[2]) ? 0 : 1;
+                return ReviewMapUpdate.Run(null, args[1], null, args[2], contractReferences: contractReferences) ? 0 : 1;
             if (args.Length == 1 && (args[0] == "--help" || args[0] == "-h")) {
                 Console.WriteLine("NameCandidates (.NET 8, Windows/macOS/Linux)\n" +
                     "  --review <assembly-or-tree> <new-all-methods.json>\n" +
@@ -33,6 +39,7 @@ public static class Program {
                     "  --suggest-property-fields <input-tree> <base-map.xml> <new-field-review.json>\n" +
                     "  --suggest-field-accessors <input-tree> <base-map.xml> <new-method-review.json>\n" +
                     "  --review-families <assembly-or-tree> <new-contract-review.json>\n" +
+                    "  [--contract-references manifest.json] --review-families/--update-map/--merge-map/--check-map ...\n" +
                     "  --review-map <reviewed.json> <input-tree> <new-source-map.xml>\n" +
                     "  --update-map <reviewed.json> <base-map.xml> <new-map.xml> <new-report.json>\n" +
                     "  --merge-map <generated-method-map.xml> <base-map.xml> <new-map.xml> <new-report.json>\n" +
@@ -63,7 +70,7 @@ public static class Program {
                 return 0;
             }
             if (args.Length == 3 && args[0] == "--review-families") {
-                FamilyReview.Write(args[1], args[2]);
+                FamilyReview.Write(args[1], args[2], contractReferences);
                 return 0;
             }
             if (args.Length == 4 && args[0] == "--review-map") {

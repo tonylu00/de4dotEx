@@ -12,6 +12,7 @@ public static class MethodReview {
         public int Format { get; set; } = 1;
         public string Kind { get; set; } = "MethodReview";
         public string TargetRoot { get; set; }
+        public string ContractReferenceSha256 { get; set; }
         public List<Entry> Methods { get; set; } = new();
         public List<Entry> Types { get; set; } = new();
         public List<Entry> Fields { get; set; } = new();

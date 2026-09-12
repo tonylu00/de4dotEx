@@ -20,6 +20,7 @@ public static class ReviewMapUpdate {
         public bool Success { get; set; }
         public string BaseMapSha256 { get; set; }
         public string ReviewSha256 { get; set; }
+        public string ContractReferenceSha256 { get; set; }
         public List<Diagnostic> Errors { get; } = new();
         public List<Change> Changes { get; } = new();
     }
@@ -57,14 +58,17 @@ public static class ReviewMapUpdate {
         }
         return full;
     }
-    public static bool Run(string reviewPath, string basePath, string outputPath, string reportPath, bool sourceMapChanges = false) {
+    public static bool Run(string reviewPath, string basePath, string outputPath, string reportPath, bool sourceMapChanges = false, string contractReferences = null) {
         if (File.Exists(reportPath) || outputPath != null && File.Exists(outputPath)) throw new IOException("Choose new output and report paths.");
         if (outputPath != null && InputPaths.Comparer.Equals(Path.GetFullPath(outputPath), Path.GetFullPath(reportPath))) throw new IOException("Map and report paths must differ.");
         var result = new Result();
         var loaded = new Dictionary<string, ModuleDefMD>(InputPaths.Comparer);
         var moduleHashes = new Dictionary<ModuleDefMD, string>();
         XDocument doc = null;
+        ContractReferences references = null;
         try {
+            references = new ContractReferences(contractReferences);
+            result.ContractReferenceSha256 = references.ManifestSha256;
             result.BaseMapSha256 = Hash(basePath);
             doc = ReadMap(basePath);
             var root = doc.Root;
@@ -74,7 +78,7 @@ public static class ReviewMapUpdate {
                 string path = Resolve(directory, relative);
                 if (!loaded.TryGetValue(path, out var module)) {
                     byte[] bytes = File.ReadAllBytes(path);
-                    loaded.Add(path, module = ModuleDefMD.Load(bytes));
+                    loaded.Add(path, module = ModuleDefMD.Load(bytes, references.Context));
                     moduleHashes.Add(module, Convert.ToHexString(SHA256.HashData(bytes)));
                 }
                 return module;
@@ -115,6 +119,8 @@ public static class ReviewMapUpdate {
                     }
                 } else inventory = JsonSerializer.Deserialize<MethodReview.Inventory>(File.ReadAllText(reviewPath));
                 if (inventory == null || inventory.Kind != "MethodReview" && inventory.Kind != "SymbolReview" || inventory.Format != 1 || !InputPaths.Comparer.Equals(directory, Path.TrimEndingDirectorySeparator(Path.GetFullPath(inventory.TargetRoot)))) throw new InvalidDataException("Review format/input root mismatch.");
+                if (inventory.ContractReferenceSha256 != null && !StringComparer.OrdinalIgnoreCase.Equals(inventory.ContractReferenceSha256, references.ManifestSha256))
+                    throw new InvalidDataException("Review requires the same hash-checked contract reference manifest.");
                 // One reviewed family member selects the contract. Verify that
                 // seed before expanding from authoritative metadata, never from
                 // an editable member list in the JSON.
@@ -348,7 +354,7 @@ public static class ReviewMapUpdate {
             }
             result.Success = result.Errors.Count == 0;
         } catch (Exception e) { result.Errors.Add(new(null, null, e.Message)); }
-        finally { foreach (var module in loaded.Values) module.Dispose(); }
+        finally { foreach (var module in loaded.Values) module.Dispose(); references?.Dispose(); }
         // Publish no map when any entry fails. Always return the complete preflight report.
         if (result.Success && outputPath != null) {
             string stage = Path.GetFullPath(outputPath) + "." + Guid.NewGuid().ToString("N") + ".tmp";
