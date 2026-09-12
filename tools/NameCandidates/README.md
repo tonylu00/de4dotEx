@@ -116,6 +116,32 @@ method renames only; unsupported proposal row kinds are rejected explicitly.
 
 ## Review types and parameters
 
+To discover field roles already established by readable property getters:
+
+```text
+dotnet tools/NameCandidates/bin/Release/net8.0/NameCandidates.dll --suggest-property-fields ./restored ./base-names.xml ./property-fields.json
+```
+
+This writes proposed `Fields[].NewName` values with physical module hashes,
+property/getter tokens, signatures and getter instructions in `PropertyEvidence`.
+It only recognizes getters that directly load and return one same-owner field.
+Computed/indexed getters, generic MemberRef resolution, multiple properties over
+one field, unreadable/numbered property placeholders, and special storage fields
+are not guessed. Ordinary `<Name>k__BackingField` members are left alone so an
+auto-property does not become an unnecessary explicit backing field. Existing
+custom field aliases are preserved independently in each physical assembly.
+Lowercase XML property names use a descriptive `Field` suffix when needed to
+avoid a declaration collision; the updater still reports inherited collisions.
+
+These are metadata proposals, not a claim that every proposed field is visible
+or needs a change in a particular decompiled source tree. Select visible,
+unreadable source fields before updating the map, and review collisions against
+their uses. The companion dnSpy application graph's `stage_property_fields.py`
+performs that source eligibility/identity check while retaining manual decisions.
+Getter-only evidence names the exposed value; it does not infer setter behavior.
+Inputs and the base map remain unchanged. The normal transactional updater and
+later consolidated source/compiler checks still apply.
+
 Fields use the same guarded workflow:
 
 ```text
