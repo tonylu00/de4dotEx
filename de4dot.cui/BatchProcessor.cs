@@ -46,6 +46,13 @@ namespace de4dot.cui {
 			var paths = Tree(root).ToList();
 			if (File.Exists(Path.Combine(root, BatchRenameJournal.Filename)))
 				throw new UserException("Input contains reserved batch report filename: " + BatchRenameJournal.Filename);
+			var forced = new HashSet<string>(PathComparison == StringComparison.OrdinalIgnoreCase ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+			foreach (var file in options.ForcedReactorFiles) {
+				var path = Path.GetFullPath(Path.IsPathRooted(file) ? file : Path.Combine(root, file));
+				if (!File.Exists(path) || !Inside(path, root))
+					throw new UserException("--force-reactor must name an existing file inside the batch root: " + file);
+				forced.Add(path.Substring(root.Length + 1));
+			}
 			var parent = Path.GetDirectoryName(output);
 			Directory.CreateDirectory(parent);
 			var work = Path.Combine(parent, ".de4dot-" + Guid.NewGuid().ToString("N"));
@@ -61,6 +68,9 @@ namespace de4dot.cui {
 					var ext = Path.GetExtension(path);
 					if (!ext.Equals(".dll", StringComparison.OrdinalIgnoreCase) && !ext.Equals(".exe", StringComparison.OrdinalIgnoreCase)) continue;
 					var relative = path.Substring(root.Length + 1);
+					bool isForced = forced.Contains(relative);
+					if (isForced)
+						Logger.n("Forcing the .NET Reactor deobfuscator (--force-reactor): {0}", relative);
 					var fileOptions = new ObfuscatedFile.Options {
 						Filename = Path.Combine(snapshot, relative), NewFilename = Path.Combine(result, relative),
 						ControlFlowDeobfuscation = options.ControlFlowDeobfuscation,
@@ -68,6 +78,8 @@ namespace de4dot.cui {
 						MetadataFlags = options.MetadataFlags | MetadataFlags.PreserveAll,
 						StringDecrypterType = options.DefaultStringDecrypterType ?? DecrypterType.Default,
 					};
+					if (isForced)
+						fileOptions.ForcedObfuscatorType = "dr4";
 					fileOptions.StringDecrypterMethods.AddRange(options.DefaultStringDecrypterMethods);
 					var file = new ObfuscatedFile(fileOptions, options.ModuleContext, options.AssemblyClientFactory);
 					try {

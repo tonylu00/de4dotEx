@@ -44,6 +44,14 @@ For a separate dependency installation, use `--assembly-contexts contexts.xml`:
 
 Paths are relative to the manifest. Sources must be managed batch inputs; `Config` is optional. Each selected input has an isolated dependency cache, exact assembly matching, and its own redirects/private probing paths. External dependencies are read-only and are not copied into the output. In-tree paths follow the staging copy. Explicit `--batch-binding` choices take precedence. External missing-member errors still prevent publication. Runtime loading and XAML/BAML rewriting are not implemented by this option.
 
+Reactor detection is read-only; components without a Reactor fingerprint skip obfuscation stages and are copied unchanged unless renamed references require an update. For a known rename-only or metadata-only protected file, select the .NET Reactor deobfuscator explicitly (repeatable, paths relative to the input folder):
+
+```powershell
+de4dot-x64.exe --batch "D:\Apps\Original" --batch-output "D:\Apps\Restored" --force-reactor "compat\LegacyLibrary.dll"
+```
+
+Forced files must exist inside the batch root. The choice applies to that input only; clean components are still preserved.
+
 Existing transformation switches apply, including `--dont-rename` and `--default-strtyp none`. `--batch` cannot be mixed with individual input files, recursive scan options, detection-only mode or one-file-at-a-time mode. XAML/BAML rewriting remains a limitation; successful batch output alone is not proof of application equivalence.
 
 For readable source exports, use `--default-strtyp static` with a supported static string decoder. `--default-strtyp none` deliberately leaves encrypted literals and their runtime decoder calls in place; it does not extract readable strings. Verify decoded values and rebuilt behavior before adopting a new processed tree.

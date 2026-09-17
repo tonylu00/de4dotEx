@@ -1,11 +1,13 @@
-// Ported from NETReactorSlayer's InitPropertyTests (module-level part). The
-// batch-level coverage (--force-reactor across compatibility copies) is added
-// together with the batch option port.
+// Ported from NETReactorSlayer's InitPropertyTests. Module-level checks always
+// run; pass the de4dotEx CLI path as a second argument to also cover the batch
+// behavior (skip without --force-reactor, restore with it).
+using System.Diagnostics;
+using System.Security.Cryptography;
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 using de4dot.code;
 
-if (args.Length != 1 || Directory.Exists(args[0])) throw new ArgumentException("Supply a new fixture directory.");
+if (args.Length is < 1 or > 2 || Directory.Exists(args[0])) throw new ArgumentException("Supply a new fixture directory and optionally the de4dotEx CLI path.");
 string root = Path.GetFullPath(args[0]);
 Directory.CreateDirectory(root);
 
@@ -103,6 +105,45 @@ using (var module = NewModule("InitGuards", ModuleKind.Dll)) {
 	var restored = written.GetTypes().Single(t => t.Name == "Valid").Properties.Single();
 	Check(restored.SetMethod.MethodSig.RetType is CModReqdSig modifier && modifier.Modifier.FullName == "System.Runtime.CompilerServices.IsExternalInit",
 		"required init modifier survives metadata writing");
+}
+
+if (args.Length == 2) {
+	void RunCli(string cli, params string[] arguments) {
+		var start = new ProcessStartInfo(cli) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+		foreach (var argument in arguments) start.ArgumentList.Add(argument);
+		start.Environment["SHELL"] = "reactor-initprops-test";
+		using var process = Process.Start(start)!;
+		var output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+		process.WaitForExit();
+		if (process.ExitCode != 0) throw new Exception("de4dotEx failed (" + process.ExitCode + "): " + output);
+	}
+	string cli = Path.GetFullPath(args[1]);
+	if (!File.Exists(cli)) throw new ArgumentException("CLI not found: " + cli);
+	string input = Path.Combine(root, "batch-input");
+	Directory.CreateDirectory(input);
+	using (var library = NewModule("InitLibrary", ModuleKind.Dll)) {
+		InitPair(library, "Container");
+		library.Write(Path.Combine(input, "InitLibrary.dll"));
+	}
+	string inputLibrary = Path.Combine(input, "InitLibrary.dll");
+	string originalHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(inputLibrary)));
+	string skipOutput = Path.Combine(root, "batch-skip"), forceOutput = Path.Combine(root, "batch-force");
+	RunCli(cli, "--batch", input, "--batch-output", skipOutput);
+	RunCli(cli, "--batch", input, "--batch-output", forceOutput, "--force-reactor", "InitLibrary.dll");
+	string skipLibrary = Path.Combine(skipOutput, "InitLibrary.dll");
+	Check(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(skipLibrary))) == originalHash,
+		"batch without --force-reactor copies the clean library unchanged");
+	using (var skipped = ModuleDefMD.Load(skipLibrary))
+		Check(!skipped.GetTypes().SelectMany(t => t.Properties).Any(), "skipped library keeps no property rows");
+	using (var forcedModule = ModuleDefMD.Load(Path.Combine(forceOutput, "InitLibrary.dll"))) {
+		var properties = forcedModule.GetTypes().SelectMany(t => t.Properties).ToList();
+		Check(properties.Count == 1, "forced batch restores exactly the proven accessor pair");
+		var property = properties[0];
+		Check(property.GetMethod != null && property.SetMethod != null, "forced batch links both accessors to the property");
+		Check(property.SetMethod.MethodSig.RetType is CModReqdSig, "forced batch keeps the required init modifier");
+		Check(property.SetMethod.DeclaringType.Fields.Any(f => f.IsInitOnly), "forced batch keeps readonly storage");
+	}
+	Check(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(inputLibrary))) == originalHash, "batch input tree unchanged");
 }
 
 Console.WriteLine("PASS: all init-only property restoration checks");

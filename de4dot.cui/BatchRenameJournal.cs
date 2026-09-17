@@ -29,7 +29,7 @@ namespace de4dot.cui {
   readonly List<Entry> entries = new List<Entry>();
   public BatchRenameJournal(IEnumerable<IObfuscatedFile> files, string root) {
    foreach(var file in files) {
-    var e = new Entry {File=file, Path=file.Filename.Substring(root.Length+1), Hash=Hash(file.Filename), Mvid=file.ModuleDefMD.Mvid.ToString()};
+    var e = new Entry {File=file, Path=file.Filename.Substring(root.Length+1), Hash=Hash(file.Filename), Mvid=file.ModuleDefMD.Mvid?.ToString() ?? ""};
     foreach(var t in file.ModuleDefMD.GetTypes()) {
      Add(e,"Type",t,t.Namespace);
      foreach(var m in t.Methods) {
@@ -61,7 +61,9 @@ namespace de4dot.cui {
    foreach(var e in entries) {
     var output=Path.Combine(root,e.Path);
     using(var saved=ModuleDefMD.Load(output)) {
-     var node=new XElement("Module",new XAttribute("Path",e.Path),new XAttribute("InputMvid",e.Mvid),new XAttribute("OutputMvid",saved.Mvid),new XAttribute("InputSha256",e.Hash),new XAttribute("OutputSha256",Hash(output)));
+     // ModuleDef.Mvid is Guid? in dnlib 4.5; modules written without an MVID row
+     // (synthetic fixtures, some stripped inputs) must not crash the journal.
+     var node=new XElement("Module",new XAttribute("Path",e.Path),new XAttribute("InputMvid",e.Mvid),new XAttribute("OutputMvid",saved.Mvid?.ToString() ?? ""),new XAttribute("InputSha256",e.Hash),new XAttribute("OutputSha256",Hash(output)));
      foreach(var s in e.Symbols) {
       var d=s.Definition;
       bool removed = d is TypeDef td ? td.Module != e.File.ModuleDefMD : d.DeclaringType == null || d.DeclaringType.Module != e.File.ModuleDefMD;
