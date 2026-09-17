@@ -44,6 +44,7 @@ namespace de4dot.code.deobfuscators.dotNET_Reactor.v4 {
 		BoolOption removeAntiStrongName;
 		BoolOption renameShort;
 		BoolOption devirtualize;
+		BoolOption restoreInitProperties;
 
 		public DeobfuscatorInfo()
 			: base(DEFAULT_REGEX) {
@@ -58,6 +59,7 @@ namespace de4dot.code.deobfuscators.dotNET_Reactor.v4 {
 			removeAntiStrongName = new BoolOption(null, MakeArgName("sn"), "Remove anti strong name code", true);
 			renameShort = new BoolOption(null, MakeArgName("sname"), "Rename short names", false);
 			devirtualize = new BoolOption(null, MakeArgName("devirtualize"), "Devirtualize methods", true);
+			restoreInitProperties = new BoolOption(null, MakeArgName("initprops"), "Restore stripped init-only property rows", true);
 		}
 
 		public override string Name => THE_NAME;
@@ -77,6 +79,7 @@ namespace de4dot.code.deobfuscators.dotNET_Reactor.v4 {
 				RemoveAntiStrongName = removeAntiStrongName.Get(),
 				RenameShort = renameShort.Get(),
 				Devirtualize = devirtualize.Get(),
+				RestoreInitProperties = restoreInitProperties.Get(),
 			});
 
 		protected override IEnumerable<Option> GetOptionsInternal() =>
@@ -92,6 +95,7 @@ namespace de4dot.code.deobfuscators.dotNET_Reactor.v4 {
 				removeAntiStrongName,
 				renameShort,
 				devirtualize,
+				restoreInitProperties,
 			};
 	}
 
@@ -128,6 +132,7 @@ namespace de4dot.code.deobfuscators.dotNET_Reactor.v4 {
 			public bool RemoveNamespaces { get; set; }
 			public bool RemoveAntiStrongName { get; set; }
 			public bool RenameShort { get; set; }
+			public bool RestoreInitProperties { get; set; }
 			public bool Devirtualize { get; set; }
 		}
 
@@ -476,15 +481,19 @@ namespace de4dot.code.deobfuscators.dotNET_Reactor.v4 {
 					if (!method.HasBody) continue;
 
 					foreach (var str in DotNetUtils.GetCodeStrings(method)) {
-						if (str == " is tampered.") {
+						// NETReactorSlayer parity: Reactor message variants
+						// ('This application is tampered.', 'Debugger Detected!')
+						// are matched by substring; exact matching misses protected
+						// builds that embed a longer message.
+						if (str.Contains("is tampered")) {
 							antiTamper = method;
-							AddMethodToBeRemoved(antiTamper, "Anti tamper method");
+							NeutralizeGuardOrRemove(method, "Anti tamper method");
 							break;
 						}
 
-						if (str == "Debugger Detected") {
+						if (str.Contains("Debugger Detected")) {
 							antiDebug = method;
-							AddMethodToBeRemoved(antiDebug, "Anti debug method");
+							NeutralizeGuardOrRemove(method, "Anti debug method");
 							break;
 						}
 					}
@@ -520,6 +529,22 @@ namespace de4dot.code.deobfuscators.dotNET_Reactor.v4 {
 					}
 				}
 			}
+		}
+
+		// Whole application trees can contain callers in other modules, so keep a
+		// void guard's definition reachable and neutralize its body instead of
+		// removing it (NETReactorSlayer's proven batch behavior). Calls are still
+		// removed by RemoveMethods; other signatures keep the removal path.
+		void NeutralizeGuardOrRemove(MethodDef method, string reason) {
+			var returnType = method.MethodSig?.RetType;
+			if (returnType != null && returnType.RemovePinnedAndModifiers().ElementType == ElementType.Void) {
+				var body = new CilBody();
+				body.Instructions.Add(Instruction.Create(OpCodes.Ret));
+				method.Body = body;
+				Logger.v("Neutralized {0}: {1}", reason, method.FullName);
+				return;
+			}
+			AddMethodToBeRemoved(method, reason);
 		}
 
 		public override void DeobfuscateBegin() {
@@ -699,6 +724,15 @@ namespace de4dot.code.deobfuscators.dotNET_Reactor.v4 {
 			RemoveInlinedMethods();
 			if (options.RestoreTypes && !PreserveBinarySignatures)
 				new TypesRestorer(module).Deobfuscate();
+
+			// NETReactorSlayer parity: restore stripped init-only property rows
+			// before the renamer sees the module (the accessors would otherwise
+			// be renamed as unrelated methods).
+			if (options.RestoreInitProperties) {
+				int restored = InitOnlyPropertyRestorer.Restore(module);
+				if (restored != 0)
+					Logger.v("Restored {0} init-only property row(s)", restored);
+			}
 
 			var decrypterType = GetDecrypterType();
 			if (canRemoveDecrypterType && IsTypeCalled(decrypterType))
